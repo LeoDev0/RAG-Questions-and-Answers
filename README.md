@@ -1,36 +1,58 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RAG Q&A
 
-## Getting Started
+This is a Document Q&A Bot built with that implements Retrieval-Augmented Generation (RAG). Users can upload PDF or text documents and ask questions about their content.
 
-First, run the development server:
+## Development Commands
 
 ```bash
+# Start development server
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
+
+# Run linting
+npm run lint
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Copy `.env.example` to `.env` and configure:
+- `DEEPSEEK_API_KEY` - For LLM responses (DeepSeek Chat API)
+- `OPENAI_API_KEY` - For document embeddings only
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Architecture
 
-## Learn More
+### Core RAG Pipeline (`src/lib/rag-pipeline.ts`)
+- **LLM**: DeepSeek Chat API via ChatOpenAI with custom baseURL configuration
+- **Embeddings**: OpenAI embeddings for vector similarity search
+- **Vector Store**: MemoryVectorStore (documents reset on server restart)
+- **Text Splitting**: 1000 character chunks with 200 character overlap
 
-To learn more about Next.js, take a look at the following resources:
+### API Endpoints
+- `POST /api/upload` - Processes and stores documents (PDF/text, max 10MB)
+- `POST /api/query` - Performs RAG queries against uploaded documents
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Data Flow
+1. Documents uploaded via `/api/upload` → processed by `DocumentProcessor` → chunked → embedded → stored in vector store
+2. Questions via `/api/query` → similarity search → context retrieval → LLM prompt → response with sources
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Key Components
+- `RAGPipeline` - Core RAG logic with DeepSeek + OpenAI integration
+- `DocumentProcessor` - PDF and text file processing utilities
+- `MemoryVectorStore` - In-memory vector storage (non-persistent)
+- Type definitions in `src/types/index.ts` for Document, DocumentChunk, ChatMessage, RAGResponse
 
-## Deploy on Vercel
+### Frontend
+- Single-page React app with file upload and chat interface
+- Real-time Q&A with source citations
+- Tailwind CSS for styling
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Configuration Notes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- File upload limit: 10MB (configured in `next.config.ts`)
+- Supported file types: PDF and plain text
+- Vector store is ephemeral - documents are lost on server restart
