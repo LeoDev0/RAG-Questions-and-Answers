@@ -1,6 +1,6 @@
 # RAG Q&A
 
-This is a Document Q&A Bot built with that implements Retrieval-Augmented Generation (RAG). Users can upload PDF or text documents and ask questions about their content.
+Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can upload PDF or text documents and ask questions about their content.
 
 ## Development Commands
 
