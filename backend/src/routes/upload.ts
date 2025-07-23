@@ -1,31 +1,33 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { Router, Request, Response } from 'express';
 import { RAGPipeline } from '@/lib/rag-pipeline';
 import { DocumentProcessor } from '@/lib/document-processor';
+import { upload } from '@/middleware/upload';
+import { UploadResponse } from '@/types';
 
+const router = Router();
 const ragPipeline = new RAGPipeline();
 const documentProcessor = new DocumentProcessor();
 
-export async function POST(request: NextRequest) {
+router.post('/', upload.single('file'), async (req: Request, res: Response<UploadResponse>) => {
   try {
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
+    const file = req.file;
 
     if (!file) {
-      return NextResponse.json(
-        { error: 'No file provided' },
-        { status: 400 }
-      );
+      return res.status(400).json({
+        success: false,
+        error: 'No file provided'
+      });
     }
 
     // Process the file
     const { content } = await documentProcessor.processFile(file);
     
     // Create document object
-    const document = documentProcessor.createDocument(content, file.name);
+    const document = documentProcessor.createDocument(content, file.originalname);
     
     // Process into chunks
     const chunks = await ragPipeline.processDocument(content, {
-      source: file.name,
+      source: file.originalname,
     });
     
     // Add to vector store
@@ -34,7 +36,7 @@ export async function POST(request: NextRequest) {
     // Update document with chunks
     document.chunks = chunks;
 
-    return NextResponse.json({
+    res.json({
       success: true,
       document: {
         id: document.id,
@@ -46,9 +48,11 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Upload error:', error);
-    return NextResponse.json(
-      { error: 'Failed to process document' },
-      { status: 500 }
-    );
+    res.status(500).json({
+      success: false,
+      error: 'Failed to process document'
+    });
   }
-}
+});
+
+export default router;

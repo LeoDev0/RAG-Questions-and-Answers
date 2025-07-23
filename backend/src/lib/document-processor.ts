@@ -11,9 +11,9 @@ export class DocumentProcessor {
     }
   }
 
-  async processFile(file: File): Promise<{ content: string; type: string }> {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const fileType = file.type;
+  async processFile(file: Express.Multer.File): Promise<{ content: string; type: string }> {
+    const buffer = file.buffer;
+    const fileType = file.mimetype;
 
     if (fileType === 'application/pdf') {
       const content = await this.processPDF(buffer);

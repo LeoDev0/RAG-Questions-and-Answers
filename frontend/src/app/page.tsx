@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChatMessage, RAGResponse } from '@/types';
+import { ChatMessage, RAGResponse, UploadResponse } from '@/types';
 
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -18,17 +18,18 @@ export default function Home() {
     formData.append('file', file);
 
     try {
-      const response = await fetch('/api/upload', {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/upload`, {
         method: 'POST',
         body: formData,
       });
 
-      const result = await response.json();
+      const result: UploadResponse = await response.json();
       
-      if (result.success) {
+      if (result.success && result.document) {
         setUploadStatus(`✅ ${file.name} uploaded successfully! (${result.document.chunksCount} chunks)`);
       } else {
-        setUploadStatus(`❌ Failed to upload: ${result.error}`);
+        setUploadStatus(`❌ Failed to upload: ${result.error || 'Unknown error'}`);
       }
     } catch (error) {
       setUploadStatus(`❌ Upload error: ${error}`);
@@ -51,7 +52,8 @@ export default function Home() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/query', {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+      const response = await fetch(`${backendUrl}/api/query`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: input }),
@@ -59,15 +61,25 @@ export default function Home() {
 
       const result: RAGResponse = await response.json();
       
-      const assistantMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.answer,
-        timestamp: new Date(),
-        sources: result.sources,
-      };
+      if (result.success && result.answer) {
+        const assistantMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: result.answer,
+          timestamp: new Date(),
+          sources: result.sources,
+        };
 
-      setMessages(prev => [...prev, assistantMessage]);
+        setMessages(prev => [...prev, assistantMessage]);
+      } else {
+        const errorMessage: ChatMessage = {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content: result.error || 'Sorry, there was an error processing your question.',
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      }
     } catch (error) {
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
