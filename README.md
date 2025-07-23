@@ -2,57 +2,126 @@
 
 Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can upload PDF or text documents and ask questions about their content.
 
-## Development Commands
+## Features
 
-```bash
-# Start development server
-npm run dev
+- Upload PDF and text documents (max 10MB)
+- Ask natural language questions about uploaded content
+- Real-time Q&A with source citations
+- Vector-based document similarity search
+- DeepSeek LLM integration for responses
+- OpenAI embeddings for document processing
 
-# Build for production
-npm run build
+## Project Structure
 
-# Start production server
-npm start
-
-# Run linting
-npm run lint
+```
+/
+├── backend/          # Express.js API server
+│   ├── src/
+│   │   ├── lib/      # RAG pipeline & document processor
+│   │   ├── routes/   # API endpoints (/upload, /query)
+│   │   ├── middleware/
+│   │   ├── types/
+│   │   └── server.ts
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── .env.example
+│   ├── .gitignore
+└── frontend/         # Next.js React application
+    ├── src/
+    │   ├── app/      # Next.js pages
+    │   └── types/
+    ├── package.json
+    ├── tsconfig.json
+    ├── .env.example
+    └── .gitignore
 ```
 
-## Environment Setup
+## Quick Start
 
-Copy `.env.example` to `.env` and configure:
-- `DEEPSEEK_API_KEY` - For LLM responses (DeepSeek Chat API)
-- `OPENAI_API_KEY` - For document embeddings only
+### Backend Setup (Express.js API)
+
+```bash
+cd backend
+
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your API keys:
+# DEEPSEEK_API_KEY=your_deepseek_api_key_here
+# OPENAI_API_KEY=your_openai_api_key_here
+# PORT=3001
+
+# Start development server
+npm run dev
+```
+
+The backend will run on `http://localhost:3001`
+
+### Frontend Setup (Next.js App)
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Configure environment
+cp .env.example .env.local
+# Edit .env.local with:
+# NEXT_PUBLIC_BACKEND_URL=http://localhost:3001
+
+# Start development server
+npm run dev
+```
+
+The frontend will run on `http://localhost:3000`
+
+## API Endpoints
+
+- **POST** `/api/upload` - Upload and process documents
+- **POST** `/api/query` - Ask questions about uploaded documents
+- **GET** `/health` - Health check
+
+## Environment Variables
+
+### Backend (.env)
+- `DEEPSEEK_API_KEY` - DeepSeek Chat API key for LLM responses
+- `OPENAI_API_KEY` - OpenAI API key for document embeddings
+- `PORT` - Server port (default: 3001)
+
+### Frontend (.env)
+- `NEXT_PUBLIC_BACKEND_URL` - Backend API URL (default: http://localhost:3001)
+
+## Technology Stack
+
+### Backend
+- **Express.js** - Web framework
+- **TypeScript** - Type safety
+- **LangChain** - RAG pipeline framework
+- **DeepSeek API** - Language model for responses
+- **OpenAI Embeddings** - Document vectorization
+- **Multer** - File upload handling
+- **pdf-parse** - PDF text extraction
+
+### Frontend
+- **Next.js** - React framework
+- **React** - UI library
+- **TypeScript** - Type safety
+- **Tailwind CSS** - Styling
 
 ## Architecture
 
-### Core RAG Pipeline (`src/lib/rag-pipeline.ts`)
-- **LLM**: DeepSeek Chat API via ChatOpenAI with custom baseURL configuration
-- **Embeddings**: OpenAI embeddings for vector similarity search
-- **Vector Store**: MemoryVectorStore (documents reset on server restart)
-- **Text Splitting**: 1000 character chunks with 200 character overlap
-
-### API Endpoints
-- `POST /api/upload` - Processes and stores documents (PDF/text, max 10MB)
-- `POST /api/query` - Performs RAG queries against uploaded documents
+### RAG Pipeline
+1. **Document Upload**: Files are processed and chunked into 1000-character segments with 200-character overlap
+2. **Embedding**: Text chunks are converted to vectors using OpenAI embeddings
+3. **Storage**: Vectors stored in memory (ephemeral - resets on restart)
+4. **Query**: User questions trigger similarity search to find relevant chunks
+5. **Generation**: DeepSeek LLM generates responses based on retrieved context
 
 ### Data Flow
-1. Documents uploaded via `/api/upload` → processed by `DocumentProcessor` → chunked → embedded → stored in vector store
-2. Questions via `/api/query` → similarity search → context retrieval → LLM prompt → response with sources
-
-### Key Components
-- `RAGPipeline` - Core RAG logic with DeepSeek + OpenAI integration
-- `DocumentProcessor` - PDF and text file processing utilities
-- `MemoryVectorStore` - In-memory vector storage (non-persistent)
-- Type definitions in `src/types/index.ts` for Document, DocumentChunk, ChatMessage, RAGResponse
-
-### Frontend
-- Single-page React app with file upload and chat interface
-- Real-time Q&A with source citations
-- Tailwind CSS for styling
-
-## Configuration Notes
-
-- File upload limit: 10MB (configured in `next.config.ts`)
-- Supported file types: PDF and plain text
-- Vector store is ephemeral - documents are lost on server restart
+```
+Frontend → Backend /api/upload → Document Processing → Vector Storage
+Frontend → Backend /api/query → Similarity Search → LLM → Response
+```
