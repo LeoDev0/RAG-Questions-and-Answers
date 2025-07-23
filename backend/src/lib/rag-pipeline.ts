@@ -1,5 +1,4 @@
-import { ChatOpenAI } from '@langchain/openai';
-import { OpenAIEmbeddings } from '@langchain/openai';
+import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
 import { MemoryVectorStore } from 'langchain/vectorstores/memory';
 import { Document as LangchainDocument } from '@langchain/core/documents';
@@ -80,7 +79,7 @@ ${context}
 
 Question: ${question}
 
-Please answer the question based on the context provided. If the answer is not in the context, say "I don't have enough information to answer this question."`;
+Please answer the question based on the context provided and always try to make direct citations from the document (always in the original language of the document, you don't have to translate citations) to endorse your answer with the source, make it more reliable and avoid hallucinations. If the answer is not in the context, say you don't have enough information to answer the question. It's important to always answer the question in the language used by the user to ask it`;
 
     const response = await this.llm.invoke(prompt);
 
