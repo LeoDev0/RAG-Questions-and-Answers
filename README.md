@@ -15,17 +15,20 @@ Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can
 
 ```
 /
-├── backend/          # Express.js API server
-│   ├── src/
-│   │   ├── lib/      # RAG pipeline & document processor
-│   │   ├── routes/   # API endpoints (/upload, /query)
-│   │   ├── middleware/
-│   │   ├── types/
-│   │   └── server.ts
-│   ├── package.json
-│   ├── tsconfig.json
+├── backend/          # Go API server
+│   ├── cmd/
+│   │   └── main.go   # Application entry point
+│   ├── internal/
+│   │   ├── config/   # Configuration handling
+│   │   ├── handlers/ # HTTP handlers
+│   │   └── services/ # Business logic (RAG pipeline, document processing)
+│   ├── pkg/
+│   │   ├── types/    # Data structures
+│   │   └── utils/    # Utilities
+│   ├── go.mod
+│   ├── Makefile
 │   ├── .env.example
-│   ├── .gitignore
+│   └── .gitignore
 └── frontend/         # Next.js React application
     ├── src/
     │   ├── app/      # Next.js pages
@@ -38,13 +41,13 @@ Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can
 
 ## Quick Start
 
-### Backend Setup (Express.js API)
+### Backend Setup (Go API)
 
 ```bash
 cd backend
 
 # Install dependencies
-npm install
+go mod download
 
 # Configure environment
 cp .env.example .env
@@ -54,7 +57,7 @@ cp .env.example .env
 # PORT=3001
 
 # Start development server
-npm run dev
+go run cmd/main.go
 ```
 
 The backend will run on `http://localhost:3001`
@@ -97,13 +100,12 @@ The frontend will run on `http://localhost:3000`
 ## Technology Stack
 
 ### Backend
-- **Express.js** - Web framework
-- **TypeScript** - Type safety
-- **LangChain** - RAG pipeline framework
+- **Go 1.24.4** - Programming language
+- **Gin** - Web framework
 - **DeepSeek API** - Language model for responses
 - **OpenAI Embeddings** - Document vectorization
-- **Multer** - File upload handling
-- **pdf-parse** - PDF text extraction
+- **ledongthuc/pdf** - PDF text extraction
+- **In-memory Vector Store** - Document similarity search
 
 ### Frontend
 - **Next.js** - React framework
@@ -122,6 +124,6 @@ The frontend will run on `http://localhost:3000`
 
 ### Data Flow
 ```
-Frontend → Backend /api/upload → Document Processing → Vector Storage
-Frontend → Backend /api/query → Similarity Search → LLM → Response
+Frontend → Go Backend /api/upload → Document Processing → Vector Storage
+Frontend → Go Backend /api/query → Similarity Search → DeepSeek LLM → Response
 ```
