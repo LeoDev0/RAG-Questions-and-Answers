@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"sort"
 	"strings"
@@ -248,7 +249,7 @@ func cosineSimilarity(a, b []float64) float64 {
 		return 0
 	}
 
-	return dotProduct / (normA * normB)
+	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
 type DeepSeekResponse struct {
