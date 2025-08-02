@@ -17,6 +17,7 @@ func NewTextSplitter(chunkSize, chunkOverlap int) *TextSplitter {
 	}
 }
 
+// SplitText splits the input text into chunks based on the configured ChunkSize and ChunkOverlap.
 func (ts *TextSplitter) SplitText(text string) []string {
 	if utf8.RuneCountInString(text) <= ts.ChunkSize {
 		return []string{text}
@@ -27,10 +28,7 @@ func (ts *TextSplitter) SplitText(text string) []string {
 	start := 0
 
 	for start < len(runes) {
-		end := start + ts.ChunkSize
-		if end > len(runes) {
-			end = len(runes)
-		}
+		end := min(start+ts.ChunkSize, len(runes))
 
 		chunk := string(runes[start:end])
 		chunks = append(chunks, strings.TrimSpace(chunk))
@@ -39,10 +37,7 @@ func (ts *TextSplitter) SplitText(text string) []string {
 			break
 		}
 
-		start = end - ts.ChunkOverlap
-		if start < 0 {
-			start = 0
-		}
+		start = max(end-ts.ChunkOverlap, 0)
 	}
 
 	return chunks

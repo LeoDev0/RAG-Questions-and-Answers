@@ -79,13 +79,10 @@ func (mvs *MemoryVectorStore) SimilaritySearch(queryEmbedding []float64) []types
 	})
 
 	// Return top k results
-	k := maxContentChunks
-	if k > len(scored) {
-		k = len(scored)
-	}
+	k := min(maxContentChunks, len(scored))
 
 	results := make([]types.DocumentChunk, k)
-	for i := 0; i < k; i++ {
+	for i := range k {
 		results[i] = scored[i].Chunk
 	}
 
