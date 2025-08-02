@@ -37,6 +37,11 @@ type MemoryVectorStore struct {
 	mutex     sync.RWMutex
 }
 
+type ScoredChunk struct {
+	Chunk types.DocumentChunk
+	Score float64
+}
+
 func NewMemoryVectorStore() *MemoryVectorStore {
 	return &MemoryVectorStore{
 		documents: make([]types.DocumentChunk, 0),
@@ -55,12 +60,6 @@ func (mvs *MemoryVectorStore) SimilaritySearch(queryEmbedding []float64) []types
 
 	if len(mvs.documents) == 0 {
 		return []types.DocumentChunk{}
-	}
-
-	// Calculate cosine similarity for each document
-	type ScoredChunk struct {
-		Chunk types.DocumentChunk
-		Score float64
 	}
 
 	scored := make([]ScoredChunk, 0, len(mvs.documents))
@@ -90,8 +89,8 @@ func (mvs *MemoryVectorStore) SimilaritySearch(queryEmbedding []float64) []types
 
 func NewRAGPipeline(cfg *config.Config) *RAGPipeline {
 	return &RAGPipeline{
-		config:         cfg,
-		openaiClient:   openai.NewClient(option.WithAPIKey(cfg.OpenAIAPIKey)),
+		config:       cfg,
+		openaiClient: openai.NewClient(option.WithAPIKey(cfg.OpenAIAPIKey)),
 		deepseekClient: openai.NewClient(
 			option.WithAPIKey(cfg.DeepSeekAPIKey),
 			option.WithBaseURL("https://api.deepseek.com/v1"),
@@ -224,4 +223,3 @@ func cosineSimilarity(a, b []float64) float64 {
 
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
-
