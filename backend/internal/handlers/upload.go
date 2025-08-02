@@ -75,7 +75,7 @@ func (h *UploadHandler) HandleUpload(c *gin.Context) {
 		Document: &types.UploadDocumentSummary{
 			ID:          document.ID,
 			Name:        document.Name,
-			ChunksCount: len(chunks),
+			ChunksCount: len(document.Chunks),
 			UploadedAt:  document.UploadedAt,
 		},
 	})
