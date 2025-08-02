@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sashabaranov/go-openai"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
+
+	"github.com/sashabaranov/go-openai"
 
 	"rag-backend/internal/config"
 	"rag-backend/pkg/types"
@@ -71,13 +73,9 @@ func (mvs *MemoryVectorStore) SimilaritySearch(queryEmbedding []float64) []types
 	}
 
 	// Sort by score (descending)
-	for i := 0; i < len(scored); i++ {
-		for j := i + 1; j < len(scored); j++ {
-			if scored[i].Score < scored[j].Score {
-				scored[i], scored[j] = scored[j], scored[i]
-			}
-		}
-	}
+	sort.Slice(scored, func(i, j int) bool {
+		return scored[i].Score > scored[j].Score
+	})
 
 	// Return top k results
 	k := maxContentChunks
