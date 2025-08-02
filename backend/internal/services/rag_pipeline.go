@@ -1,17 +1,15 @@
 package services
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"math"
-	"net/http"
 	"sort"
 	"strings"
 	"sync"
 
-	"github.com/sashabaranov/go-openai"
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
 
 	"rag-backend/internal/config"
 	"rag-backend/pkg/types"
@@ -26,11 +24,12 @@ const (
 )
 
 type RAGPipeline struct {
-	config       *config.Config
-	openaiClient *openai.Client
-	vectorStore  *MemoryVectorStore
-	textSplitter *utils.TextSplitter
-	mutex        sync.RWMutex
+	config         *config.Config
+	openaiClient   *openai.Client
+	deepseekClient *openai.Client
+	vectorStore    *MemoryVectorStore
+	textSplitter   *utils.TextSplitter
+	mutex          sync.RWMutex
 }
 
 type MemoryVectorStore struct {
@@ -91,8 +90,12 @@ func (mvs *MemoryVectorStore) SimilaritySearch(queryEmbedding []float64) []types
 
 func NewRAGPipeline(cfg *config.Config) *RAGPipeline {
 	return &RAGPipeline{
-		config:       cfg,
-		openaiClient: openai.NewClient(cfg.OpenAIAPIKey),
+		config:         cfg,
+		openaiClient:   openai.NewClient(option.WithAPIKey(cfg.OpenAIAPIKey)),
+		deepseekClient: openai.NewClient(
+			option.WithAPIKey(cfg.DeepSeekAPIKey),
+			option.WithBaseURL("https://api.deepseek.com/v1"),
+		),
 		vectorStore:  NewMemoryVectorStore(),
 		textSplitter: utils.NewTextSplitter(chunkSize, chunkOverlap),
 	}
@@ -155,22 +158,20 @@ func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
 }
 
 func (rp *RAGPipeline) generateEmbedding(text string) ([]float64, error) {
-	req := openai.EmbeddingRequest{
-		Input: []string{text},
-		Model: openai.AdaEmbeddingV2,
-	}
-
-	resp, err := rp.openaiClient.CreateEmbeddings(context.TODO(), req)
+	embedding, err := rp.openaiClient.Embeddings.New(context.TODO(), openai.EmbeddingNewParams{
+		Input: openai.F[openai.EmbeddingNewParamsInputUnion](openai.EmbeddingNewParamsInputArrayOfStrings([]string{text})),
+		Model: openai.F(openai.EmbeddingModelTextEmbedding3Small),
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	if len(resp.Data) == 0 {
+	if len(embedding.Data) == 0 {
 		return nil, fmt.Errorf("no embedding returned")
 	}
 
-	// fix return type to float32 so I dont have to make this ridiculous conversion
-	embedding32 := resp.Data[0].Embedding
+	// Convert float32 to float64
+	embedding32 := embedding.Data[0].Embedding
 	embedding64 := make([]float64, len(embedding32))
 	for i, v := range embedding32 {
 		embedding64[i] = float64(v)
@@ -178,55 +179,30 @@ func (rp *RAGPipeline) generateEmbedding(text string) ([]float64, error) {
 	return embedding64, nil
 }
 
-func (rp *RAGPipeline) generateResponse(context, question string) (string, error) {
+func (rp *RAGPipeline) generateResponse(contextInfo, question string) (string, error) {
 	prompt := fmt.Sprintf(`Context information:
 %s
 
 Question: %s
 
-Please answer the question based on the context provided. If the answer is not in the context, say "I don't have enough information to answer this question."`, context, question)
+Please answer the question based on the context provided. If the answer is not in the context, say "I don't have enough information to answer this question."`, contextInfo, question)
 
-	payload := map[string]interface{}{
-		"model": "deepseek-chat",
-		"messages": []map[string]string{
-			{
-				"role":    "user",
-				"content": prompt,
-			},
-		},
-		"temperature": 0,
-	}
-
-	jsonData, err := json.Marshal(payload)
+	completion, err := rp.deepseekClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
+		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
+			openai.UserMessage(prompt),
+		}),
+		Model:       openai.F("deepseek-chat"),
+		Temperature: openai.Float(0.0),
+	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to generate response: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.deepseek.com/v1/chat/completions", bytes.NewBuffer(jsonData))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+rp.config.DeepSeekAPIKey)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	var response DeepSeekResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return "", err
-	}
-
-	if len(response.Choices) == 0 {
+	if len(completion.Choices) == 0 {
 		return "", fmt.Errorf("no response from DeepSeek API")
 	}
 
-	return response.Choices[0].Message.Content, nil
+	return completion.Choices[0].Message.Content, nil
 }
 
 // cosineSimilarity calculates cosine similarity between two vectors
@@ -249,14 +225,3 @@ func cosineSimilarity(a, b []float64) float64 {
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-type DeepSeekResponse struct {
-	Choices []Choice `json:"choices"`
-}
-
-type Choice struct {
-	Message Message `json:"message"`
-}
-
-type Message struct {
-	Content string `json:"content"`
-}
