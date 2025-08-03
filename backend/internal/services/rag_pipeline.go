@@ -81,7 +81,7 @@ func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
 		return nil, fmt.Errorf("failed to generate embedding for query: %w", err)
 	}
 
-	scoredChunks, err := rp.vectorStore.SimilaritySearch(queryEmbedding, maxContentChunks)
+	scoredChunks, err := rp.vectorStore.Search(queryEmbedding, maxContentChunks)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search vector store: %w", err)
 	}
