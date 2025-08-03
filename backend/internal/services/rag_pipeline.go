@@ -49,6 +49,7 @@ func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]strin
 
 	chunks := make([]types.DocumentChunk, len(textChunks))
 
+	// TODO use go routines to parallel the embedding calls since each one takes some time
 	for i, textChunk := range textChunks {
 		// Generate embedding for this chunk
 		embedding, err := rp.generateEmbedding(textChunk)
