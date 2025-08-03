@@ -66,7 +66,13 @@ func (h *UploadHandler) HandleUpload(c *gin.Context) {
 		return
 	}
 
-	h.ragPipeline.AddDocumentToVectorStore(chunks)
+	if err := h.ragPipeline.AddDocumentToVectorStore(chunks); err != nil {
+		c.JSON(http.StatusInternalServerError, types.UploadResponse{
+			Success: false,
+			Error:   "Failed to store document chunks: " + err.Error(),
+		})
+		return
+	}
 
 	document.Chunks = chunks
 

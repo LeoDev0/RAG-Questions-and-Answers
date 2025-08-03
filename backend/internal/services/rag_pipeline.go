@@ -3,8 +3,8 @@ package services
 import (
 	"context"
 	"fmt"
-	"math"
-	"sort"
+	"rag-backend/internal/repositories/vectorstore"
+	"rag-backend/internal/repositories/vectorstore/memory"
 	"strings"
 	"sync"
 
@@ -27,64 +27,9 @@ type RAGPipeline struct {
 	config         *config.Config
 	openaiClient   openai.Client
 	deepseekClient openai.Client
-	vectorStore    *MemoryVectorStore
+	vectorStore    vectorstore.VectorStore
 	textSplitter   *utils.TextSplitter
 	mutex          sync.RWMutex
-}
-
-type MemoryVectorStore struct {
-	documents []types.DocumentChunk
-	mutex     sync.RWMutex
-}
-
-type ScoredChunk struct {
-	Chunk types.DocumentChunk
-	Score float64
-}
-
-func NewMemoryVectorStore() *MemoryVectorStore {
-	return &MemoryVectorStore{
-		documents: make([]types.DocumentChunk, 0),
-	}
-}
-
-func (mvs *MemoryVectorStore) AddDocuments(chunks []types.DocumentChunk) {
-	mvs.mutex.Lock()
-	defer mvs.mutex.Unlock()
-	mvs.documents = append(mvs.documents, chunks...)
-}
-
-func (mvs *MemoryVectorStore) SimilaritySearch(queryEmbedding []float64) []types.DocumentChunk {
-	mvs.mutex.RLock()
-	defer mvs.mutex.RUnlock()
-
-	if len(mvs.documents) == 0 {
-		return []types.DocumentChunk{}
-	}
-
-	scored := make([]ScoredChunk, 0, len(mvs.documents))
-	for _, chunk := range mvs.documents {
-		if len(chunk.Embedding) == 0 {
-			continue
-		}
-		score := cosineSimilarity(queryEmbedding, chunk.Embedding)
-		scored = append(scored, ScoredChunk{Chunk: chunk, Score: score})
-	}
-
-	// Sort by score (descending)
-	sort.Slice(scored, func(i, j int) bool {
-		return scored[i].Score > scored[j].Score
-	})
-
-	// Return top k results
-	k := min(maxContentChunks, len(scored))
-
-	results := make([]types.DocumentChunk, k)
-	for i := range k {
-		results[i] = scored[i].Chunk
-	}
-
-	return results
 }
 
 func NewRAGPipeline(cfg *config.Config) *RAGPipeline {
@@ -95,7 +40,7 @@ func NewRAGPipeline(cfg *config.Config) *RAGPipeline {
 			option.WithAPIKey(cfg.DeepSeekAPIKey),
 			option.WithBaseURL("https://api.deepseek.com/v1"),
 		),
-		vectorStore:  NewMemoryVectorStore(),
+		vectorStore:  memory.NewMemoryVectorStore(),
 		textSplitter: utils.NewTextSplitter(chunkSize, chunkOverlap),
 	}
 }
@@ -123,8 +68,11 @@ func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]strin
 	return chunks, nil
 }
 
-func (rp *RAGPipeline) AddDocumentToVectorStore(chunks []types.DocumentChunk) {
-	rp.vectorStore.AddDocuments(chunks)
+func (rp *RAGPipeline) AddDocumentToVectorStore(chunks []types.DocumentChunk) error {
+	if err := rp.vectorStore.Store(chunks); err != nil {
+		return fmt.Errorf("failed to store chunks: %w", err)
+	}
+	return nil
 }
 
 func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
@@ -133,15 +81,20 @@ func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
 		return nil, fmt.Errorf("failed to generate embedding for query: %w", err)
 	}
 
-	relevantDocs := rp.vectorStore.SimilaritySearch(queryEmbedding)
+	scoredChunks, err := rp.vectorStore.SimilaritySearch(queryEmbedding, maxContentChunks)
+	if err != nil {
+		return nil, fmt.Errorf("failed to search vector store: %w", err)
+	}
 
 	// Build context from relevant documents
 	var contextBuilder strings.Builder
-	for i, doc := range relevantDocs {
+	relevantDocs := make([]types.DocumentChunk, len(scoredChunks))
+	for i, scored := range scoredChunks {
 		if i > 0 {
 			contextBuilder.WriteString("\n\n")
 		}
-		contextBuilder.WriteString(doc.Content)
+		contextBuilder.WriteString(scored.Chunk.Content)
+		relevantDocs[i] = scored.Chunk
 	}
 
 	answer, err := rp.generateResponse(contextBuilder.String(), question)
@@ -171,7 +124,7 @@ func (rp *RAGPipeline) generateEmbedding(text string) ([]float64, error) {
 		return nil, fmt.Errorf("no embedding returned")
 	}
 
-	// Convert float32 to float64
+	// TODO : Handle different embedding types if needed so I dont have to make this conversion
 	embedding32 := embedding.Data[0].Embedding
 	embedding64 := make([]float64, len(embedding32))
 	for i, v := range embedding32 {
@@ -204,24 +157,4 @@ Please answer the question based on the context provided. If the answer is not i
 	}
 
 	return completion.Choices[0].Message.Content, nil
-}
-
-// cosineSimilarity calculates cosine similarity between two vectors
-func cosineSimilarity(a, b []float64) float64 {
-	if len(a) != len(b) {
-		return 0
-	}
-
-	var dotProduct, normA, normB float64
-	for i := range a {
-		dotProduct += a[i] * b[i]
-		normA += a[i] * a[i]
-		normB += b[i] * b[i]
-	}
-
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-
-	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }

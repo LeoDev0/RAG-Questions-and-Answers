@@ -48,6 +48,11 @@ type QueryRequest struct {
 	Question string `json:"question" binding:"required"`
 }
 
+type ScoredChunk struct {
+	Chunk DocumentChunk `json:"chunk"`
+	Score float64       `json:"score"`
+}
+
 type HealthResponse struct {
 	Status    string    `json:"status"`
 	Timestamp time.Time `json:"timestamp"`
