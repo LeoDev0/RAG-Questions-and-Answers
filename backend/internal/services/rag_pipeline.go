@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"rag-backend/internal/repositories/vectorstore"
-	"rag-backend/internal/repositories/vectorstore/memory"
 	"strings"
 	"sync"
 
@@ -32,7 +31,7 @@ type RAGPipeline struct {
 	mutex          sync.RWMutex
 }
 
-func NewRAGPipeline(cfg *config.Config) *RAGPipeline {
+func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RAGPipeline {
 	return &RAGPipeline{
 		config:       cfg,
 		openaiClient: openai.NewClient(option.WithAPIKey(cfg.OpenAIAPIKey)),
@@ -40,7 +39,7 @@ func NewRAGPipeline(cfg *config.Config) *RAGPipeline {
 			option.WithAPIKey(cfg.DeepSeekAPIKey),
 			option.WithBaseURL("https://api.deepseek.com/v1"),
 		),
-		vectorStore:  memory.NewMemoryVectorStore(),
+		vectorStore:  vectorStore,
 		textSplitter: utils.NewTextSplitter(chunkSize, chunkOverlap),
 	}
 }

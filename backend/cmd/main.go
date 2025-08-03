@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"rag-backend/internal/repositories/vectorstore/memory"
 
 	"github.com/gin-gonic/gin"
 	"github.com/rs/cors"
@@ -14,7 +15,9 @@ import (
 func main() {
 	cfg := config.Load()
 
-	ragPipeline := services.NewRAGPipeline(cfg)
+	vectorStore := memory.NewMemoryVectorStore()
+
+	ragPipeline := services.NewRAGPipeline(cfg, vectorStore)
 	documentProcessor := services.NewDocumentProcessor()
 
 	uploadHandler := handlers.NewUploadHandler(ragPipeline, documentProcessor)
