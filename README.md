@@ -23,8 +23,9 @@ Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can
 │   │   ├── handlers/ # HTTP handlers
 │   │   └── services/ # Business logic (RAG pipeline, document processing)
 │   ├── pkg/
-│   │   ├── types/    # Data structures
-│   │   └── utils/    # Utilities
+│   │   ├── types/      # Data structures
+│   │   └── utils/      # Utilities
+│   │   └── similarity/ # Similarity search algorithm
 │   ├── go.mod
 │   ├── Makefile
 │   ├── .env.example
