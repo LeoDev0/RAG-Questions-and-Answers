@@ -25,8 +25,8 @@ const (
 
 type RAGPipeline struct {
 	config         *config.Config
-	openaiClient   *openai.Client
-	deepseekClient *openai.Client
+	openaiClient   openai.Client
+	deepseekClient openai.Client
 	vectorStore    *MemoryVectorStore
 	textSplitter   *utils.TextSplitter
 	mutex          sync.RWMutex
@@ -158,8 +158,10 @@ func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
 
 func (rp *RAGPipeline) generateEmbedding(text string) ([]float64, error) {
 	embedding, err := rp.openaiClient.Embeddings.New(context.TODO(), openai.EmbeddingNewParams{
-		Input: openai.F[openai.EmbeddingNewParamsInputUnion](openai.EmbeddingNewParamsInputArrayOfStrings([]string{text})),
-		Model: openai.F(openai.EmbeddingModelTextEmbedding3Small),
+		Input: openai.EmbeddingNewParamsInputUnion{
+			OfString: openai.String(text),
+		},
+		Model: openai.EmbeddingModelTextEmbedding3Small,
 	})
 	if err != nil {
 		return nil, err
@@ -187,11 +189,11 @@ Question: %s
 Please answer the question based on the context provided. If the answer is not in the context, say "I don't have enough information to answer this question."`, contextInfo, question)
 
 	completion, err := rp.deepseekClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
-		Messages: openai.F([]openai.ChatCompletionMessageParamUnion{
+		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(prompt),
-		}),
-		Model:       openai.F("deepseek-chat"),
-		Temperature: openai.Float(0.0),
+		},
+		Model:       "deepseek-chat",
+		Temperature: openai.Float(0.0), // The model will be deterministic and always choose the most likely next token. Same question = same answer every time
 	})
 	if err != nil {
 		return "", fmt.Errorf("failed to generate response: %w", err)
