@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChatMessage, RAGResponse, UploadResponse } from '@/types';
 
 export default function Home() {
@@ -8,6 +8,26 @@ export default function Home() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
+  const [thinkingDots, setThinkingDots] = useState('');
+
+  // Animate thinking dots when loading
+  useEffect(() => {
+    if (!isLoading) {
+      setThinkingDots('');
+      return;
+    }
+
+    const interval = setInterval(() => {
+      setThinkingDots(prev => {
+        if (prev === '') return '.';
+        if (prev === '.') return '..';
+        if (prev === '..') return '...';
+        return '';
+      });
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [isLoading]);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -25,7 +45,7 @@ export default function Home() {
       });
 
       const result: UploadResponse = await response.json();
-      
+
       if (result.success && result.document) {
         setUploadStatus(`✅ ${file.name} uploaded successfully! (${result.document.chunksCount} chunks)`);
       } else {
@@ -60,7 +80,7 @@ export default function Home() {
       });
 
       const result: RAGResponse = await response.json();
-      
+
       if (result.success && result.answer) {
         const assistantMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
@@ -96,7 +116,7 @@ export default function Home() {
   return (
     <div className="container mx-auto max-w-4xl p-4">
       <h1 className="text-3xl font-bold mb-8 text-center">Document Q&A Bot</h1>
-      
+
       {/* File Upload */}
       <div className="mb-8 p-6 border-2 border-dashed border-gray-300 rounded-lg">
         <h2 className="text-xl font-semibold mb-4">Upload Document</h2>
@@ -119,31 +139,29 @@ export default function Home() {
           messages.map((message) => (
             <div
               key={message.id}
-              className={`mb-4 ${
-                message.role === 'user' ? 'text-right' : 'text-left'
-              }`}
+              className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'
+                }`}
             >
               <div
-                className={`inline-block p-3 rounded-lg max-w-xs lg:max-w-md ${
-                  message.role === 'user'
-                    ? 'bg-blue-500 text-white'
-                    : 'bg-white border'
-                }`}
+                className={`inline-block p-3 rounded-lg max-w-xs lg:max-w-md ${message.role === 'user'
+                  ? 'bg-blue-500 text-white'
+                  : 'bg-gray-200 text-black'
+                  }`}
               >
                 <p className="whitespace-pre-wrap">{message.content}</p>
-                {message.sources && message.sources.length > 0 && (
-                  <div className="mt-2 text-xs opacity-75">
-                    <p>Sources: {message.sources.length} chunks</p>
-                  </div>
-                )}
               </div>
             </div>
           ))
         )}
         {isLoading && (
           <div className="text-left">
-            <div className="inline-block p-3 rounded-lg bg-gray-200">
-              <p>Thinking...</p>
+            <div className="inline-block p-3 rounded-lg bg-gray-200 text-black">
+              <p>
+                Thinking
+                <span className="inline-block w-6 text-left">
+                  {thinkingDots}
+                </span>
+              </p>
             </div>
           </div>
         )}
