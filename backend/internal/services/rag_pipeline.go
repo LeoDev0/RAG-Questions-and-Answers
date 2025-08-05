@@ -47,20 +47,19 @@ func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RA
 func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
 	textChunks := rp.textSplitter.SplitText(content)
 
+	// Generate embeddings for all chunks in a single batch API call
+	embeddings, err := rp.generateEmbeddingBatch(textChunks)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate embeddings: %w", err)
+	}
+
+	// Create chunks with the batch-generated embeddings
 	chunks := make([]types.DocumentChunk, len(textChunks))
-
-	// TODO use go routines to parallel the embedding calls since each one takes some time
 	for i, textChunk := range textChunks {
-		// Generate embedding for this chunk
-		embedding, err := rp.generateEmbedding(textChunk)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate embedding for chunk %d: %w", i, err)
-		}
-
 		chunks[i] = types.DocumentChunk{
 			ID:        fmt.Sprintf("%s-chunk-%d", metadata["source"], i),
 			Content:   textChunk,
-			Embedding: embedding,
+			Embedding: embeddings[i],
 			Metadata:  metadata,
 		}
 	}
@@ -124,13 +123,46 @@ func (rp *RAGPipeline) generateEmbedding(text string) ([]float64, error) {
 		return nil, fmt.Errorf("no embedding returned")
 	}
 
-	// TODO : Handle different embedding types if needed so I dont have to make this conversion
+	// TODO Handle different embedding types if needed so I dont have to make this conversion
 	embedding32 := embedding.Data[0].Embedding
 	embedding64 := make([]float64, len(embedding32))
 	for i, v := range embedding32 {
 		embedding64[i] = float64(v)
 	}
 	return embedding64, nil
+}
+
+func (rp *RAGPipeline) generateEmbeddingBatch(texts []string) ([][]float64, error) {
+	if len(texts) == 0 {
+		return nil, fmt.Errorf("no texts provided for batch embedding")
+	}
+
+	embedding, err := rp.openaiClient.Embeddings.New(context.TODO(), openai.EmbeddingNewParams{
+		Input: openai.EmbeddingNewParamsInputUnion{
+			OfArrayOfStrings: texts,
+		},
+		Model: openai.EmbeddingModelTextEmbedding3Small,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(embedding.Data) != len(texts) {
+		return nil, fmt.Errorf("expected %d embeddings, got %d", len(texts), len(embedding.Data))
+	}
+
+	// TODO Handle different embedding types if needed so I dont have to make this conversion
+	embeddings := make([][]float64, len(embedding.Data))
+	for i, embData := range embedding.Data {
+		embedding32 := embData.Embedding
+		embedding64 := make([]float64, len(embedding32))
+		for j, v := range embedding32 {
+			embedding64[j] = float64(v)
+		}
+		embeddings[i] = embedding64
+	}
+
+	return embeddings, nil
 }
 
 func (rp *RAGPipeline) generateResponse(contextInfo, question string) (string, error) {
