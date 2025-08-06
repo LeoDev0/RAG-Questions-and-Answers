@@ -24,9 +24,7 @@ type RAGResponse struct {
 }
 
 type UploadResponse struct {
-	Success  bool                   `json:"success"`
-	Document *UploadDocumentSummary `json:"document,omitempty"`
-	Error    string                 `json:"error,omitempty"`
+	Document *UploadDocumentSummary `json:"document"`
 }
 
 type UploadDocumentSummary struct {
@@ -37,11 +35,9 @@ type UploadDocumentSummary struct {
 }
 
 type QueryResponse struct {
-	Success    bool            `json:"success"`
-	Answer     string          `json:"answer,omitempty"`
-	Sources    []DocumentChunk `json:"sources,omitempty"`
-	Confidence float64         `json:"confidence,omitempty"`
-	Error      string          `json:"error,omitempty"`
+	Answer     string          `json:"answer"`
+	Sources    []DocumentChunk `json:"sources"`
+	Confidence float64         `json:"confidence"`
 }
 
 type QueryRequest struct {
@@ -51,6 +47,12 @@ type QueryRequest struct {
 type ScoredChunk struct {
 	Chunk DocumentChunk `json:"chunk"`
 	Score float64       `json:"score"`
+}
+
+type ErrorResponse struct {
+	Error   string `json:"error"`
+	Code    string `json:"code,omitempty"`
+	Details string `json:"details,omitempty"`
 }
 
 type HealthResponse struct {

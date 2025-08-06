@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"rag-backend/pkg/codes"
 
 	"github.com/gin-gonic/gin"
 
@@ -23,32 +24,32 @@ func (h *QueryHandler) HandleQuery(c *gin.Context) {
 	var request types.QueryRequest
 
 	if err := c.ShouldBindJSON(&request); err != nil {
-		c.JSON(http.StatusBadRequest, types.QueryResponse{
-			Success: false,
-			Error:   "Question is required and must be a string",
+		c.JSON(http.StatusBadRequest, types.ErrorResponse{
+			Error: "Question is required and must be a string",
+			Code:  codes.ErrInvalidRequest,
 		})
 		return
 	}
 
 	if request.Question == "" {
-		c.JSON(http.StatusBadRequest, types.QueryResponse{
-			Success: false,
-			Error:   "Question cannot be empty",
+		c.JSON(http.StatusBadRequest, types.ErrorResponse{
+			Error: "Question cannot be empty",
+			Code:  codes.ErrEmptyQuestion,
 		})
 		return
 	}
 
 	response, err := h.ragPipeline.Query(request.Question)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, types.QueryResponse{
-			Success: false,
-			Error:   "Failed to process query: " + err.Error(),
+		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
+			Error:   "Failed to process query",
+			Code:    codes.ErrQueryError,
+			Details: err.Error(),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, types.QueryResponse{
-		Success:    true,
 		Answer:     response.Answer,
 		Sources:    response.Sources,
 		Confidence: response.Confidence,

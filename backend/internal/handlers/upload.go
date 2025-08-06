@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"rag-backend/pkg/codes"
 
 	"github.com/gin-gonic/gin"
 
@@ -27,26 +28,27 @@ func NewUploadHandler(ragPipeline *services.RAGPipeline, documentProcessor *serv
 func (h *UploadHandler) HandleUpload(c *gin.Context) {
 	fileHeader, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, types.UploadResponse{
-			Success: false,
-			Error:   "No file provided",
+		c.JSON(http.StatusBadRequest, types.ErrorResponse{
+			Error: "No file provided",
+			Code:  codes.ErrNoFile,
 		})
 		return
 	}
 
 	if fileHeader.Size > maxFileSize {
-		c.JSON(http.StatusBadRequest, types.UploadResponse{
-			Success: false,
-			Error:   fmt.Sprintf("File too large. Maximum size is %s", userFriendlyFileSizeFormatter(maxFileSize)),
+		c.JSON(http.StatusBadRequest, types.ErrorResponse{
+			Error: fmt.Sprintf("File too large. Maximum size is %s", userFriendlyFileSizeFormatter(maxFileSize)),
+			Code:  codes.ErrFileTooLarge,
 		})
 		return
 	}
 
 	content, err := h.documentProcessor.ProcessFile(fileHeader)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, types.UploadResponse{
-			Success: false,
-			Error:   "Failed to process document: " + err.Error(),
+		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
+			Error:   "Failed to process document",
+			Code:    codes.ErrProcessing,
+			Details: err.Error(),
 		})
 		return
 	}
@@ -59,17 +61,19 @@ func (h *UploadHandler) HandleUpload(c *gin.Context) {
 	}
 	chunks, err := h.ragPipeline.ProcessDocument(content, metadata)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, types.UploadResponse{
-			Success: false,
-			Error:   "Failed to process document chunks: " + err.Error(),
+		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
+			Error:   "Failed to process document chunks",
+			Code:    codes.ErrChunking,
+			Details: err.Error(),
 		})
 		return
 	}
 
 	if err := h.ragPipeline.AddDocumentToVectorStore(chunks); err != nil {
-		c.JSON(http.StatusInternalServerError, types.UploadResponse{
-			Success: false,
-			Error:   "Failed to store document chunks: " + err.Error(),
+		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
+			Error:   "Failed to store document chunks",
+			Code:    codes.ErrStorage,
+			Details: err.Error(),
 		})
 		return
 	}
@@ -77,7 +81,6 @@ func (h *UploadHandler) HandleUpload(c *gin.Context) {
 	document.Chunks = chunks
 
 	c.JSON(http.StatusOK, types.UploadResponse{
-		Success: true,
 		Document: &types.UploadDocumentSummary{
 			ID:          document.ID,
 			Name:        document.Name,
