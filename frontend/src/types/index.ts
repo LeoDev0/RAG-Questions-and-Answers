@@ -16,20 +16,22 @@ export interface ChatMessage {
 }
 
 export interface RAGResponse {
-  success: boolean;
-  answer?: string;
-  sources?: DocumentChunk[];
-  confidence?: number;
-  error?: string;
+  answer: string;
+  sources: DocumentChunk[];
+  confidence: number;
 }
 
 export interface UploadResponse {
-  success: boolean;
-  document?: {
+  document: {
     id: string;
     name: string;
     chunksCount: number;
     uploadedAt: Date;
   };
-  error?: string;
+}
+
+export interface ErrorResponse {
+  error: string;
+  code?: string;
+  details?: string;
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChatMessage, RAGResponse, UploadResponse } from '@/types';
+import { ChatMessage, RAGResponse, UploadResponse, ErrorResponse } from '@/types';
 
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -44,12 +44,12 @@ export default function Home() {
         body: formData,
       });
 
-      const result: UploadResponse = await response.json();
-
-      if (result.success && result.document) {
+      if (response.ok) {
+        const result: UploadResponse = await response.json();
         setUploadStatus(`✅ ${file.name} uploaded successfully! (${result.document.chunksCount} chunks)`);
       } else {
-        setUploadStatus(`❌ Failed to upload: ${result.error || 'Unknown error'}`);
+        const error: ErrorResponse = await response.json();
+        setUploadStatus(`❌ Failed to upload: ${error.error}`);
       }
     } catch (error) {
       setUploadStatus(`❌ Upload error: ${error}`);
@@ -79,9 +79,8 @@ export default function Home() {
         body: JSON.stringify({ question: input }),
       });
 
-      const result: RAGResponse = await response.json();
-
-      if (result.success && result.answer) {
+      if (response.ok) {
+        const result: RAGResponse = await response.json();
         const assistantMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
@@ -92,15 +91,16 @@ export default function Home() {
 
         setMessages(prev => [...prev, assistantMessage]);
       } else {
+        const error: ErrorResponse = await response.json();
         const errorMessage: ChatMessage = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: result.error || 'Sorry, there was an error processing your question.',
+          content: `Sorry, there was an error: ${error.error}`,
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, errorMessage]);
       }
-    } catch (error) {
+    } catch {
       const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
@@ -116,7 +116,7 @@ export default function Home() {
   return (
     <div className="container mx-auto max-w-4xl p-4">
       <h1 className="text-3xl font-bold mb-8 text-center">Document Q&A Bot</h1>
-
+      
       {/* File Upload */}
       <div className="mb-8 p-6 border-2 border-dashed border-gray-300 rounded-lg">
         <h2 className="text-xl font-semibold mb-4">Upload Document</h2>
