@@ -20,6 +20,8 @@ const (
 	chunkSize         = 1000
 	chunkOverlap      = 200
 	maxContentChunks  = 4
+	maxBatchSize      = 40
+	maxConcurrency    = 5
 )
 
 type RAGPipeline struct {
@@ -47,13 +49,21 @@ func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RA
 func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
 	textChunks := rp.textSplitter.SplitText(content)
 
-	// Generate embeddings for all chunks in a single batch API call
-	embeddings, err := rp.generateEmbeddingBatch(textChunks)
+	var embeddings [][]float64
+	var err error
+
+	if len(textChunks) > maxBatchSize {
+		// Use parallel batch processing for large documents
+		embeddings, err = rp.generateEmbeddingParallel(textChunks)
+	} else {
+		// Use single batch processing for small documents
+		embeddings, err = rp.generateEmbeddingBatch(textChunks)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate embeddings: %w", err)
 	}
 
-	// Create chunks with the batch-generated embeddings
 	chunks := make([]types.DocumentChunk, len(textChunks))
 	for i, textChunk := range textChunks {
 		chunks[i] = types.DocumentChunk{
@@ -165,6 +175,66 @@ func (rp *RAGPipeline) generateEmbeddingBatch(texts []string) ([][]float64, erro
 	return embeddings, nil
 }
 
+func (rp *RAGPipeline) generateEmbeddingParallel(texts []string) ([][]float64, error) {
+	// Split texts into batches of size equals to maxBatchSize
+	batches := make([][]string, 0)
+	for i := 0; i < len(texts); i += maxBatchSize {
+		end := i + maxBatchSize
+		end = min(end, len(texts))
+		batches = append(batches, texts[i:end])
+	}
+
+	// Process batches in parallel with concurrency control
+	// How It Works:
+	//
+	// 1. Channel as Gatekeeper: make(chan struct{}, N) creates a channel that can hold N "tokens"
+	// 2. Acquire Token: semaphore <- struct{}{} - Goroutine waits here if channel is full
+	// 3. Do Work: Only when there's space, the goroutine proceeds to make API call
+	// 4. Release Token: <-semaphore - Frees up space for the next waiting goroutine one by one like a traffic light for goroutines
+	//
+	// This way I get parallel processing speed while staying within API limits and avoiding
+	semaphore := make(chan struct{}, maxConcurrency)
+	resultChan := make(chan batchResult, len(batches))
+	var wg sync.WaitGroup
+
+	for i, batch := range batches {
+		wg.Add(1)
+		go func(idx int, textBatch []string) {
+			defer wg.Done()
+
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
+			embeddings, err := rp.generateEmbeddingBatch(textBatch)
+			resultChan <- batchResult{
+				index:      idx,
+				embeddings: embeddings,
+				err:        err,
+			}
+		}(i, batch)
+	}
+
+	wg.Wait()
+	close(resultChan)
+
+	// Collect results in order
+	results := make([]batchResult, len(batches))
+	for result := range resultChan {
+		if result.err != nil {
+			return nil, fmt.Errorf("failed to generate embeddings for batch %d: %w", result.index, result.err)
+		}
+		results[result.index] = result
+	}
+
+	// Combine all embeddings in the correct order
+	allEmbeddings := make([][]float64, 0, len(texts))
+	for _, result := range results {
+		allEmbeddings = append(allEmbeddings, result.embeddings...)
+	}
+
+	return allEmbeddings, nil
+}
+
 func (rp *RAGPipeline) generateResponse(contextInfo, question string) (string, error) {
 	prompt := fmt.Sprintf(`Context information:
 %s
@@ -189,4 +259,10 @@ Please answer the question based on the context provided. If the answer is not i
 	}
 
 	return completion.Choices[0].Message.Content, nil
+}
+
+type batchResult struct {
+	index      int
+	embeddings [][]float64
+	err        error
 }
