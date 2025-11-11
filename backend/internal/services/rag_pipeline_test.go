@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"rag-backend/internal/config"
 	"rag-backend/pkg/types"
 	"rag-backend/pkg/utils"
@@ -88,18 +89,10 @@ func TestNewRAGPipeline(t *testing.T) {
 
 	pipeline := NewRAGPipeline(cfg, mockStore)
 
-	if pipeline == nil {
-		t.Fatal("NewRAGPipeline() returned nil")
-	}
-	if pipeline.config != cfg {
-		t.Error("Config not properly set")
-	}
-	if pipeline.vectorStore != mockStore {
-		t.Error("VectorStore not properly set")
-	}
-	if pipeline.textSplitter == nil {
-		t.Error("TextSplitter should be initialized")
-	}
+	assert.NotNil(t, pipeline, "NewRAGPipeline() should not return nil")
+	assert.Equal(t, cfg, pipeline.config, "Config should be properly set")
+	assert.Equal(t, mockStore, pipeline.vectorStore, "VectorStore should be properly set")
+	assert.NotNil(t, pipeline.textSplitter, "TextSplitter should be initialized")
 }
 
 func TestProcessDocument(t *testing.T) {
@@ -123,9 +116,7 @@ func TestProcessDocument(t *testing.T) {
 
 		// We expect an error because the OpenAI API key is fake
 		// and we can't make real API calls
-		if err == nil {
-			t.Error("Expected error when processing document without valid API")
-		}
+		assert.Error(t, err, "Expected error when processing document without valid API")
 	})
 
 	t.Run("nil metadata", func(t *testing.T) {
@@ -137,8 +128,8 @@ func TestProcessDocument(t *testing.T) {
 
 		// Should handle nil metadata gracefully (even though it will fail on API call)
 		// The error should be about API, not about nil metadata
-		if err != nil && strings.Contains(err.Error(), "nil") {
-			t.Error("Should handle nil metadata gracefully")
+		if err != nil {
+			assert.NotContains(t, err.Error(), "nil", "Error should not be about nil metadata")
 		}
 	})
 }
@@ -203,16 +194,16 @@ func TestAddDocumentToVectorStore(t *testing.T) {
 
 			err := pipeline.AddDocumentToVectorStore(tt.chunks)
 
-			if (err != nil) != tt.wantErr {
-				t.Errorf("AddDocumentToVectorStore() error = %v, wantErr %v", err, tt.wantErr)
+			if tt.wantErr {
+				assert.Error(t, err, "AddDocumentToVectorStore() should return error")
+			} else {
+				assert.NoError(t, err, "AddDocumentToVectorStore() should not return error")
 			}
 
 			// Verify chunks were stored if no error expected
 			if !tt.wantErr && tt.storeFunc == nil {
 				stored := mockStore.GetStoredChunks()
-				if len(stored) != len(tt.chunks) {
-					t.Errorf("Expected %d chunks stored, got %d", len(tt.chunks), len(stored))
-				}
+				assert.Equal(t, len(tt.chunks), len(stored), "Stored chunks count should match")
 			}
 		})
 	}
@@ -230,9 +221,7 @@ func TestQuery(t *testing.T) {
 		_, err := pipeline.Query("")
 
 		// Should get an error (likely from API call with empty string)
-		if err == nil {
-			t.Error("Expected error when querying with empty question")
-		}
+		assert.Error(t, err, "Expected error when querying with empty question")
 	})
 
 	t.Run("vector store search error", func(t *testing.T) {
@@ -246,9 +235,7 @@ func TestQuery(t *testing.T) {
 		// This will fail on embedding generation first, but tests the flow
 		_, err := pipeline.Query("test question")
 
-		if err == nil {
-			t.Error("Expected error when vector store search fails")
-		}
+		assert.Error(t, err, "Expected error when vector store search fails")
 	})
 
 	t.Run("vector store returns results", func(t *testing.T) {
@@ -278,14 +265,13 @@ func TestQuery(t *testing.T) {
 		_, err := pipeline.Query("What is machine learning?")
 
 		// We expect an API error since we're using fake keys
-		if err == nil {
-			t.Error("Expected error due to invalid API keys")
-		}
+		assert.Error(t, err, "Expected error due to invalid API keys")
 
 		// Verify the error is related to embedding generation or API call
-		if err != nil && !strings.Contains(err.Error(), "embedding") &&
-		   !strings.Contains(err.Error(), "failed") {
-			t.Logf("Error message: %v", err)
+		if err != nil {
+			errorIsExpected := strings.Contains(err.Error(), "embedding") ||
+				strings.Contains(err.Error(), "failed")
+			assert.True(t, errorIsExpected, "Error should be related to embedding or API failure")
 		}
 	})
 }
@@ -296,17 +282,9 @@ func TestTextSplitterIntegration(t *testing.T) {
 	pipeline := NewRAGPipeline(cfg, mockStore)
 
 	// Verify text splitter configuration
-	if pipeline.textSplitter == nil {
-		t.Fatal("TextSplitter should be initialized")
-	}
-
-	if pipeline.textSplitter.ChunkSize != chunkSize {
-		t.Errorf("Expected chunk size %d, got %d", chunkSize, pipeline.textSplitter.ChunkSize)
-	}
-
-	if pipeline.textSplitter.ChunkOverlap != chunkOverlap {
-		t.Errorf("Expected chunk overlap %d, got %d", chunkOverlap, pipeline.textSplitter.ChunkOverlap)
-	}
+	assert.NotNil(t, pipeline.textSplitter, "TextSplitter should be initialized")
+	assert.Equal(t, chunkSize, pipeline.textSplitter.ChunkSize, "ChunkSize should match constant")
+	assert.Equal(t, chunkOverlap, pipeline.textSplitter.ChunkOverlap, "ChunkOverlap should match constant")
 }
 
 func TestConstants(t *testing.T) {
@@ -329,19 +307,17 @@ func TestConstants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.checkMin && tt.value < tt.min {
-				t.Errorf("%s = %d, should be >= %d", tt.name, tt.value, tt.min)
+			if tt.checkMin {
+				assert.GreaterOrEqual(t, tt.value, tt.min, "%s should be >= %d", tt.name, tt.min)
 			}
-			if tt.checkMax && tt.value > tt.max {
-				t.Errorf("%s = %d, should be <= %d", tt.name, tt.value, tt.max)
+			if tt.checkMax {
+				assert.LessOrEqual(t, tt.value, tt.max, "%s should be <= %d", tt.name, tt.max)
 			}
 		})
 	}
 
 	// Verify overlap is less than chunk size
-	if chunkOverlap >= chunkSize {
-		t.Error("chunkOverlap should be less than chunkSize")
-	}
+	assert.Less(t, chunkOverlap, chunkSize, "chunkOverlap should be less than chunkSize")
 }
 
 func TestAddDocumentToVectorStore_Concurrent(t *testing.T) {
@@ -363,9 +339,7 @@ func TestAddDocumentToVectorStore_Concurrent(t *testing.T) {
 				},
 			}
 			err := pipeline.AddDocumentToVectorStore(chunks)
-			if err != nil {
-				t.Errorf("Concurrent AddDocumentToVectorStore failed: %v", err)
-			}
+			assert.NoError(t, err, "Concurrent AddDocumentToVectorStore should not fail")
 			done <- true
 		}(i)
 	}
@@ -377,9 +351,7 @@ func TestAddDocumentToVectorStore_Concurrent(t *testing.T) {
 
 	// Verify all chunks were stored
 	stored := mockStore.GetStoredChunks()
-	if len(stored) != numGoroutines {
-		t.Errorf("Expected %d chunks stored, got %d", numGoroutines, len(stored))
-	}
+	assert.Equal(t, numGoroutines, len(stored), "All chunks should be stored")
 }
 
 func TestMockVectorStore(t *testing.T) {
@@ -393,24 +365,15 @@ func TestMockVectorStore(t *testing.T) {
 		}
 
 		err := mock.Store(chunks)
-		if err != nil {
-			t.Fatalf("Store failed: %v", err)
-		}
+		assert.NoError(t, err, "Store should not fail")
 
 		results, err := mock.Search([]float64{0.1, 0.2}, 2)
-		if err != nil {
-			t.Fatalf("Search failed: %v", err)
-		}
-
-		if len(results) != 2 {
-			t.Errorf("Expected 2 results, got %d", len(results))
-		}
+		assert.NoError(t, err, "Search should not fail")
+		assert.Equal(t, 2, len(results), "Should return requested number of results")
 
 		// Verify scores are in descending order
 		for i := 0; i < len(results)-1; i++ {
-			if results[i].Score < results[i+1].Score {
-				t.Error("Results should be sorted by descending score")
-			}
+			assert.GreaterOrEqual(t, results[i].Score, results[i+1].Score, "Results should be sorted by descending score")
 		}
 	})
 
@@ -423,9 +386,7 @@ func TestMockVectorStore(t *testing.T) {
 		}
 
 		err := mock.Store([]types.DocumentChunk{{ID: "1"}})
-		if err != expectedErr {
-			t.Errorf("Expected custom error, got: %v", err)
-		}
+		assert.Equal(t, expectedErr, err, "Should return custom error")
 	})
 
 	t.Run("Custom search function", func(t *testing.T) {
@@ -439,13 +400,9 @@ func TestMockVectorStore(t *testing.T) {
 		}
 
 		results, err := mock.Search([]float64{0.1}, 5)
-		if err != nil {
-			t.Fatalf("Search failed: %v", err)
-		}
-
-		if len(results) != 1 || results[0].Chunk.ID != "custom" {
-			t.Error("Custom search function not used correctly")
-		}
+		assert.NoError(t, err, "Search should not fail")
+		assert.Equal(t, 1, len(results), "Should return custom results")
+		assert.Equal(t, "custom", results[0].Chunk.ID, "Custom search function should be used")
 	})
 
 	t.Run("Reset", func(t *testing.T) {
@@ -464,15 +421,11 @@ func TestMockVectorStore(t *testing.T) {
 
 		// Verify state is reset
 		stored := mock.GetStoredChunks()
-		if len(stored) != 0 {
-			t.Error("Stored chunks should be empty after reset")
-		}
+		assert.Empty(t, stored, "Stored chunks should be empty after reset")
 
 		// Verify custom function is cleared
 		err := mock.Store([]types.DocumentChunk{{ID: "2"}})
-		if err != nil {
-			t.Error("Custom store function should be cleared after reset")
-		}
+		assert.NoError(t, err, "Custom store function should be cleared after reset")
 	})
 }
 
@@ -480,9 +433,8 @@ func TestRAGPipeline_NilConfig(t *testing.T) {
 	// Test that pipeline can handle nil config gracefully
 	// (in practice, this should be validated, but we test defensive programming)
 	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Expected panic with nil config")
-		}
+		r := recover()
+		assert.NotNil(t, r, "Expected panic with nil config")
 	}()
 
 	mockStore := NewMockVectorStore()
@@ -522,9 +474,7 @@ func TestRAGPipeline_ConfigValidation(t *testing.T) {
 			mockStore := NewMockVectorStore()
 			pipeline := NewRAGPipeline(tt.config, mockStore)
 
-			if pipeline == nil {
-				t.Error("Pipeline should be created even with invalid config")
-			}
+			assert.NotNil(t, pipeline, "Pipeline should be created even with invalid config")
 		})
 	}
 }
@@ -619,10 +569,7 @@ func TestBatchSizeLogic(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			shouldUseParallel := tt.numTexts > maxBatchSize
-			if shouldUseParallel != tt.expectParallel {
-				t.Errorf("Expected parallel=%v for %d texts, got %v",
-					tt.expectParallel, tt.numTexts, shouldUseParallel)
-			}
+			assert.Equal(t, tt.expectParallel, shouldUseParallel, "Batch size logic should match expected")
 		})
 	}
 }
@@ -655,7 +602,5 @@ func TestRAGPipeline_ThreadSafety(t *testing.T) {
 
 	// Verify all operations completed
 	stored := mockStore.GetStoredChunks()
-	if len(stored) != numOperations {
-		t.Errorf("Expected %d chunks, got %d", numOperations, len(stored))
-	}
+	assert.Equal(t, numOperations, len(stored), "All concurrent operations should complete successfully")
 }
