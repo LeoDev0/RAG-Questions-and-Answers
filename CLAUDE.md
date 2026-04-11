@@ -176,6 +176,7 @@ This project follows a **decoupled architecture** with separate backend and fron
 When working on this project, pay attention to:
 
 ### Backend
+- `backend/CLAUDE.md` - Backend-specific conventions (testing, code style)
 - `backend/internal/services/rag_pipeline.go` - Core RAG logic with VectorStore interface
 - `backend/internal/services/document_processor.go` - File processing
 - `backend/internal/handlers/` - REST API endpoint implementations (proper HTTP status codes)
