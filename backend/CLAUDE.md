@@ -8,6 +8,3 @@
 - Do not use decorative separator comments (e.g., `// ----`) to visually split sections in files.
 - When table-driven tests have complex mock/expected fields, define named types instead of repeating verbose anonymous struct literals on every test case.
 
-## Git conventions
-
-- Always use conventional commits (e.g., `feat:`, `fix:`, `refactor:`, `test:`, `docs:`, `chore:`).
