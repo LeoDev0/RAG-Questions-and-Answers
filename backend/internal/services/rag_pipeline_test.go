@@ -14,48 +14,12 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"rag-backend/internal/config"
+	"rag-backend/internal/repositories/vectorstore"
 	"rag-backend/pkg/types"
 	"rag-backend/pkg/utils"
 )
 
-// ---------------------------------------------------------------------------
-// Mocks
-// ---------------------------------------------------------------------------
-
-type mockEmbeddingCreator struct {
-	newFunc func(ctx context.Context, body openai.EmbeddingNewParams, opts ...option.RequestOption) (*openai.CreateEmbeddingResponse, error)
-}
-
-func (m *mockEmbeddingCreator) New(ctx context.Context, body openai.EmbeddingNewParams, opts ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
-	return m.newFunc(ctx, body, opts...)
-}
-
-type mockChatCompleter struct {
-	newFunc func(ctx context.Context, body openai.ChatCompletionNewParams, opts ...option.RequestOption) (*openai.ChatCompletion, error)
-}
-
-func (m *mockChatCompleter) New(ctx context.Context, body openai.ChatCompletionNewParams, opts ...option.RequestOption) (*openai.ChatCompletion, error) {
-	return m.newFunc(ctx, body, opts...)
-}
-
-type mockVectorStore struct {
-	storeFunc  func(chunks []types.DocumentChunk) error
-	searchFunc func(embedding []float64, limit int) ([]types.ScoredChunk, error)
-}
-
-func (m *mockVectorStore) Store(chunks []types.DocumentChunk) error {
-	return m.storeFunc(chunks)
-}
-
-func (m *mockVectorStore) Search(embedding []float64, limit int) ([]types.ScoredChunk, error) {
-	return m.searchFunc(embedding, limit)
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-func newTestPipeline(ec EmbeddingCreator, cc ChatCompletionCreator, vs *mockVectorStore) *RAGPipeline {
+func newTestPipeline(ec EmbeddingCreator, cc ChatCompletionCreator, vs *vectorstore.MockVectorStore) *RAGPipeline {
 	return &RAGPipeline{
 		config:           &config.Config{Port: "3001", OpenAIAPIKey: "test-key", DeepSeekAPIKey: "test-key"},
 		embeddingCreator: ec,
@@ -81,17 +45,13 @@ func makeChatCompletion(content string) *openai.ChatCompletion {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestNewRAGPipeline
-// ---------------------------------------------------------------------------
-
 func TestNewRAGPipeline(t *testing.T) {
 	cfg := &config.Config{
-		Port:          "3001",
-		OpenAIAPIKey:  "test-openai-key",
+		Port:           "3001",
+		OpenAIAPIKey:   "test-openai-key",
 		DeepSeekAPIKey: "test-deepseek-key",
 	}
-	vs := &mockVectorStore{}
+	vs := &vectorstore.MockVectorStore{}
 
 	pipeline := NewRAGPipeline(cfg, vs)
 
@@ -104,10 +64,6 @@ func TestNewRAGPipeline(t *testing.T) {
 	assert.Equal(t, chunkSize, pipeline.textSplitter.ChunkSize)
 	assert.Equal(t, chunkOverlap, pipeline.textSplitter.ChunkOverlap)
 }
-
-// ---------------------------------------------------------------------------
-// TestGenerateEmbedding
-// ---------------------------------------------------------------------------
 
 func TestGenerateEmbedding(t *testing.T) {
 	type expected struct {
@@ -160,7 +116,7 @@ func TestGenerateEmbedding(t *testing.T) {
 					return tt.mock.response, tt.mock.err
 				},
 			}
-			pipeline := newTestPipeline(ec, nil, &mockVectorStore{})
+			pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 
 			result, err := pipeline.generateEmbedding("test text")
 
@@ -175,10 +131,6 @@ func TestGenerateEmbedding(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TestGenerateEmbeddingBatch
-// ---------------------------------------------------------------------------
 
 func TestGenerateEmbeddingBatch(t *testing.T) {
 	type expected struct {
@@ -252,7 +204,7 @@ func TestGenerateEmbeddingBatch(t *testing.T) {
 					return tt.mock.response, tt.mock.err
 				},
 			}
-			pipeline := newTestPipeline(ec, nil, &mockVectorStore{})
+			pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 
 			result, err := pipeline.generateEmbeddingBatch(tt.texts)
 
@@ -268,12 +220,7 @@ func TestGenerateEmbeddingBatch(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestGenerateEmbeddingParallel
-// ---------------------------------------------------------------------------
-
 func TestGenerateEmbeddingParallel(t *testing.T) {
-	// Helper: creates N texts and a mock that returns a distinct embedding per text
 	makeTextsAndMock := func(n int, failBatch int) ([]string, *mockEmbeddingCreator) {
 		texts := make([]string, n)
 		for i := range texts {
@@ -283,7 +230,6 @@ func TestGenerateEmbeddingParallel(t *testing.T) {
 			newFunc: func(_ context.Context, body openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
 				batchTexts := body.Input.OfArrayOfStrings
 				if failBatch >= 0 {
-					// Determine which batch this is by checking the first text index
 					for i := 0; i < len(texts); i += maxBatchSize {
 						batchIdx := i / maxBatchSize
 						end := min(i+maxBatchSize, len(texts))
@@ -297,7 +243,6 @@ func TestGenerateEmbeddingParallel(t *testing.T) {
 				}
 				embeddings := make([][]float64, len(batchTexts))
 				for i, txt := range batchTexts {
-					// Parse the index from "text-N" to create a unique, verifiable embedding
 					var idx int
 					fmt.Sscanf(txt, "text-%d", &idx)
 					embeddings[i] = []float64{float64(idx)}
@@ -346,7 +291,7 @@ func TestGenerateEmbeddingParallel(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			texts, ec := makeTextsAndMock(tt.numTexts, tt.failBatch)
-			pipeline := newTestPipeline(ec, nil, &mockVectorStore{})
+			pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 
 			result, err := pipeline.generateEmbeddingParallel(texts)
 
@@ -357,7 +302,6 @@ func TestGenerateEmbeddingParallel(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.Len(t, result, tt.numTexts)
-				// Verify ordering: embedding[i] should be []float64{float64(i)}
 				for i, emb := range result {
 					assert.Equal(t, []float64{float64(i)}, emb, "embedding at index %d should match", i)
 				}
@@ -370,7 +314,7 @@ func TestGenerateEmbeddingParallel_ConcurrencyLimit(t *testing.T) {
 	var currentConcurrency atomic.Int32
 	var peakConcurrency atomic.Int32
 
-	numTexts := 200 // 5 batches of 40
+	numTexts := 200
 	texts := make([]string, numTexts)
 	for i := range texts {
 		texts[i] = fmt.Sprintf("text-%d", i)
@@ -379,7 +323,6 @@ func TestGenerateEmbeddingParallel_ConcurrencyLimit(t *testing.T) {
 	ec := &mockEmbeddingCreator{
 		newFunc: func(_ context.Context, body openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
 			cur := currentConcurrency.Add(1)
-			// Track the peak concurrency observed
 			for {
 				peak := peakConcurrency.Load()
 				if cur <= peak || peakConcurrency.CompareAndSwap(peak, cur) {
@@ -387,7 +330,6 @@ func TestGenerateEmbeddingParallel_ConcurrencyLimit(t *testing.T) {
 				}
 			}
 
-			// Small sleep to create overlap between goroutines
 			time.Sleep(5 * time.Millisecond)
 			currentConcurrency.Add(-1)
 
@@ -400,7 +342,7 @@ func TestGenerateEmbeddingParallel_ConcurrencyLimit(t *testing.T) {
 		},
 	}
 
-	pipeline := newTestPipeline(ec, nil, &mockVectorStore{})
+	pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 	result, err := pipeline.generateEmbeddingParallel(texts)
 
 	assert.NoError(t, err)
@@ -408,10 +350,6 @@ func TestGenerateEmbeddingParallel_ConcurrencyLimit(t *testing.T) {
 	assert.LessOrEqual(t, int(peakConcurrency.Load()), maxConcurrency,
 		"peak concurrency %d should not exceed maxConcurrency %d", peakConcurrency.Load(), maxConcurrency)
 }
-
-// ---------------------------------------------------------------------------
-// TestGenerateResponse
-// ---------------------------------------------------------------------------
 
 func TestGenerateResponse(t *testing.T) {
 	type expected struct {
@@ -487,7 +425,7 @@ func TestGenerateResponse(t *testing.T) {
 					return tt.mock.response, tt.mock.err
 				},
 			}
-			pipeline := newTestPipeline(nil, cc, &mockVectorStore{})
+			pipeline := newTestPipeline(nil, cc, &vectorstore.MockVectorStore{})
 
 			result, err := pipeline.generateResponse(tt.contextInfo, tt.question)
 
@@ -508,10 +446,6 @@ func TestGenerateResponse(t *testing.T) {
 		})
 	}
 }
-
-// ---------------------------------------------------------------------------
-// TestProcessDocument
-// ---------------------------------------------------------------------------
 
 func TestProcessDocument(t *testing.T) {
 	type expected struct {
@@ -545,8 +479,6 @@ func TestProcessDocument(t *testing.T) {
 			name:     "multiple chunks produced from medium content",
 			content:  strings.Repeat("a", 2500),
 			metadata: map[string]string{"source": "doc2"},
-			// TextSplitter with chunkSize=1000, overlap=200 on 2500 chars:
-			// chunk0: [0,1000), chunk1: [800,1800), chunk2: [1600,2500)
 			mock: mock{
 				response: makeEmbeddingResponse([][]float64{{0.1}, {0.2}, {0.3}}),
 			},
@@ -585,7 +517,7 @@ func TestProcessDocument(t *testing.T) {
 					return tt.mock.response, tt.mock.err
 				},
 			}
-			pipeline := newTestPipeline(ec, nil, &mockVectorStore{})
+			pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 
 			chunks, err := pipeline.ProcessDocument(tt.content, tt.metadata)
 
@@ -609,9 +541,6 @@ func TestProcessDocument(t *testing.T) {
 }
 
 func TestProcessDocument_LargeDocumentUsesParallelPath(t *testing.T) {
-	// Generate content large enough to produce > 40 chunks
-	// With chunkSize=1000 and chunkOverlap=200, each chunk after the first advances by 800 chars.
-	// For 41 chunks: 1000 + 40*800 = 33000 characters
 	content := strings.Repeat("x", 33_000)
 	metadata := map[string]string{"source": "large-doc"}
 
@@ -627,19 +556,14 @@ func TestProcessDocument_LargeDocumentUsesParallelPath(t *testing.T) {
 			return makeEmbeddingResponse(embeddings), nil
 		},
 	}
-	pipeline := newTestPipeline(ec, nil, &mockVectorStore{})
+	pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 
 	chunks, err := pipeline.ProcessDocument(content, metadata)
 
 	assert.NoError(t, err)
 	assert.Greater(t, len(chunks), maxBatchSize, "should have more than maxBatchSize chunks to trigger parallel path")
-	// Parallel path splits into multiple batches, so the mock should be called more than once
 	assert.Greater(t, int(callCount.Load()), 1, "parallel path should call embedding API multiple times")
 }
-
-// ---------------------------------------------------------------------------
-// TestAddDocumentToVectorStore
-// ---------------------------------------------------------------------------
 
 func TestAddDocumentToVectorStore(t *testing.T) {
 	sampleChunks := []types.DocumentChunk{
@@ -683,8 +607,8 @@ func TestAddDocumentToVectorStore(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var storedChunks []types.DocumentChunk
-			vs := &mockVectorStore{
-				storeFunc: func(chunks []types.DocumentChunk) error {
+			vs := &vectorstore.MockVectorStore{
+				StoreFunc: func(chunks []types.DocumentChunk) error {
 					storedChunks = chunks
 					return tt.mock.storeErr
 				},
@@ -704,29 +628,28 @@ func TestAddDocumentToVectorStore(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// TestQuery
-// ---------------------------------------------------------------------------
-
 func TestQuery(t *testing.T) {
+	type embeddingMock struct {
+		response *openai.CreateEmbeddingResponse
+		err      error
+	}
+	type searchMock struct {
+		result []types.ScoredChunk
+		err    error
+	}
+	type chatMock struct {
+		response *openai.ChatCompletion
+		err      error
+	}
+	type mock struct {
+		embedding embeddingMock
+		search    searchMock
+		chat      chatMock
+	}
 	type expected struct {
 		answer  string
 		sources int
 		err     string
-	}
-	type mock struct {
-		embedding struct {
-			response *openai.CreateEmbeddingResponse
-			err      error
-		}
-		search struct {
-			result []types.ScoredChunk
-			err    error
-		}
-		chat struct {
-			response *openai.ChatCompletion
-			err      error
-		}
 	}
 
 	tests := []struct {
@@ -739,20 +662,11 @@ func TestQuery(t *testing.T) {
 			name:     "full pipeline success with single source",
 			question: "What is Go?",
 			mock: mock{
-				embedding: struct {
-					response *openai.CreateEmbeddingResponse
-					err      error
-				}{response: makeEmbeddingResponse([][]float64{{0.5, 0.6}})},
-				search: struct {
-					result []types.ScoredChunk
-					err    error
-				}{result: []types.ScoredChunk{
+				embedding: embeddingMock{response: makeEmbeddingResponse([][]float64{{0.5, 0.6}})},
+				search: searchMock{result: []types.ScoredChunk{
 					{Chunk: types.DocumentChunk{ID: "c1", Content: "Go is a language"}, Score: 0.9},
 				}},
-				chat: struct {
-					response *openai.ChatCompletion
-					err      error
-				}{response: makeChatCompletion("Go is a compiled language.")},
+				chat: chatMock{response: makeChatCompletion("Go is a compiled language.")},
 			},
 			expected: expected{
 				answer:  "Go is a compiled language.",
@@ -763,22 +677,13 @@ func TestQuery(t *testing.T) {
 			name:     "multiple sources joined with double newline separator",
 			question: "Tell me about Go",
 			mock: mock{
-				embedding: struct {
-					response *openai.CreateEmbeddingResponse
-					err      error
-				}{response: makeEmbeddingResponse([][]float64{{0.5}})},
-				search: struct {
-					result []types.ScoredChunk
-					err    error
-				}{result: []types.ScoredChunk{
+				embedding: embeddingMock{response: makeEmbeddingResponse([][]float64{{0.5}})},
+				search: searchMock{result: []types.ScoredChunk{
 					{Chunk: types.DocumentChunk{ID: "c1", Content: "Go is compiled"}, Score: 0.9},
 					{Chunk: types.DocumentChunk{ID: "c2", Content: "Go has goroutines"}, Score: 0.8},
 					{Chunk: types.DocumentChunk{ID: "c3", Content: "Go is statically typed"}, Score: 0.7},
 				}},
-				chat: struct {
-					response *openai.ChatCompletion
-					err      error
-				}{response: makeChatCompletion("Go is great.")},
+				chat: chatMock{response: makeChatCompletion("Go is great.")},
 			},
 			expected: expected{
 				answer:  "Go is great.",
@@ -789,10 +694,7 @@ func TestQuery(t *testing.T) {
 			name:     "returns error when embedding generation fails",
 			question: "fail",
 			mock: mock{
-				embedding: struct {
-					response *openai.CreateEmbeddingResponse
-					err      error
-				}{err: errors.New("openai down")},
+				embedding: embeddingMock{err: errors.New("openai down")},
 			},
 			expected: expected{
 				err: "failed to generate embedding for query",
@@ -802,14 +704,8 @@ func TestQuery(t *testing.T) {
 			name:     "returns error when vector store search fails",
 			question: "search fail",
 			mock: mock{
-				embedding: struct {
-					response *openai.CreateEmbeddingResponse
-					err      error
-				}{response: makeEmbeddingResponse([][]float64{{0.1}})},
-				search: struct {
-					result []types.ScoredChunk
-					err    error
-				}{err: errors.New("search broken")},
+				embedding: embeddingMock{response: makeEmbeddingResponse([][]float64{{0.1}})},
+				search:    searchMock{err: errors.New("search broken")},
 			},
 			expected: expected{
 				err: "failed to search vector store",
@@ -819,18 +715,9 @@ func TestQuery(t *testing.T) {
 			name:     "returns error when response generation fails",
 			question: "resp fail",
 			mock: mock{
-				embedding: struct {
-					response *openai.CreateEmbeddingResponse
-					err      error
-				}{response: makeEmbeddingResponse([][]float64{{0.1}})},
-				search: struct {
-					result []types.ScoredChunk
-					err    error
-				}{result: []types.ScoredChunk{{Chunk: types.DocumentChunk{Content: "ctx"}, Score: 0.5}}},
-				chat: struct {
-					response *openai.ChatCompletion
-					err      error
-				}{err: errors.New("deepseek timeout")},
+				embedding: embeddingMock{response: makeEmbeddingResponse([][]float64{{0.1}})},
+				search:    searchMock{result: []types.ScoredChunk{{Chunk: types.DocumentChunk{Content: "ctx"}, Score: 0.5}}},
+				chat:      chatMock{err: errors.New("deepseek timeout")},
 			},
 			expected: expected{
 				err: "failed to generate response",
@@ -840,18 +727,9 @@ func TestQuery(t *testing.T) {
 			name:     "handles no search results with empty context",
 			question: "obscure topic",
 			mock: mock{
-				embedding: struct {
-					response *openai.CreateEmbeddingResponse
-					err      error
-				}{response: makeEmbeddingResponse([][]float64{{0.1}})},
-				search: struct {
-					result []types.ScoredChunk
-					err    error
-				}{result: []types.ScoredChunk{}},
-				chat: struct {
-					response *openai.ChatCompletion
-					err      error
-				}{response: makeChatCompletion("I don't have enough information.")},
+				embedding: embeddingMock{response: makeEmbeddingResponse([][]float64{{0.1}})},
+				search:    searchMock{result: []types.ScoredChunk{}},
+				chat:      chatMock{response: makeChatCompletion("I don't have enough information.")},
 			},
 			expected: expected{
 				answer:  "I don't have enough information.",
@@ -878,8 +756,8 @@ func TestQuery(t *testing.T) {
 				},
 			}
 
-			vs := &mockVectorStore{
-				searchFunc: func(embedding []float64, limit int) ([]types.ScoredChunk, error) {
+			vs := &vectorstore.MockVectorStore{
+				SearchFunc: func(embedding []float64, limit int) ([]types.ScoredChunk, error) {
 					return tt.mock.search.result, tt.mock.search.err
 				},
 			}
@@ -923,8 +801,8 @@ func TestQuery_ContextBuiltFromMultipleSources(t *testing.T) {
 		},
 	}
 
-	vs := &mockVectorStore{
-		searchFunc: func(_ []float64, _ int) ([]types.ScoredChunk, error) {
+	vs := &vectorstore.MockVectorStore{
+		SearchFunc: func(_ []float64, _ int) ([]types.ScoredChunk, error) {
 			return []types.ScoredChunk{
 				{Chunk: types.DocumentChunk{Content: "First chunk"}, Score: 0.9},
 				{Chunk: types.DocumentChunk{Content: "Second chunk"}, Score: 0.8},
@@ -936,7 +814,6 @@ func TestQuery_ContextBuiltFromMultipleSources(t *testing.T) {
 	_, err := pipeline.Query("test question")
 
 	assert.NoError(t, err)
-	// Verify chunks are separated by double newline in the context
 	assert.Contains(t, capturedPrompt, "First chunk\n\nSecond chunk")
 }
 
@@ -953,8 +830,8 @@ func TestQuery_PassesCorrectSearchLimit(t *testing.T) {
 	}
 
 	var capturedLimit int
-	vs := &mockVectorStore{
-		searchFunc: func(_ []float64, limit int) ([]types.ScoredChunk, error) {
+	vs := &vectorstore.MockVectorStore{
+		SearchFunc: func(_ []float64, limit int) ([]types.ScoredChunk, error) {
 			capturedLimit = limit
 			return []types.ScoredChunk{}, nil
 		},
