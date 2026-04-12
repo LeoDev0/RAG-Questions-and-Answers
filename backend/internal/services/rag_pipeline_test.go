@@ -302,7 +302,7 @@ func TestGenerateEmbeddingParallel_ConcurrencyLimit(t *testing.T) {
 	var currentConcurrency atomic.Int32
 	var peakConcurrency atomic.Int32
 
-	numTexts := 200
+	numTexts := 400
 	texts := make([]string, numTexts)
 	for i := range texts {
 		texts[i] = fmt.Sprintf("text-%d", i)
