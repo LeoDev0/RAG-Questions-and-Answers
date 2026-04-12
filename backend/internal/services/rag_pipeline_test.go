@@ -221,26 +221,17 @@ func TestGenerateEmbeddingBatch(t *testing.T) {
 }
 
 func TestGenerateEmbeddingParallel(t *testing.T) {
-	makeTextsAndMock := func(n int, failBatch int) ([]string, *mockEmbeddingCreator) {
+	makeTextsAndMock := func(n int, shouldFail bool) ([]string, *mockEmbeddingCreator) {
 		texts := make([]string, n)
 		for i := range texts {
 			texts[i] = fmt.Sprintf("text-%d", i)
 		}
 		ec := &mockEmbeddingCreator{
 			newFunc: func(_ context.Context, body openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
-				batchTexts := body.Input.OfArrayOfStrings
-				if failBatch >= 0 {
-					for i := 0; i < len(texts); i += maxBatchSize {
-						batchIdx := i / maxBatchSize
-						end := min(i+maxBatchSize, len(texts))
-						if len(batchTexts) == end-i && batchTexts[0] == texts[i] {
-							if batchIdx == failBatch {
-								return nil, fmt.Errorf("batch %d failed", batchIdx)
-							}
-							break
-						}
-					}
+				if shouldFail {
+					return nil, fmt.Errorf("batch failed")
 				}
+				batchTexts := body.Input.OfArrayOfStrings
 				embeddings := make([][]float64, len(batchTexts))
 				for i, txt := range batchTexts {
 					var idx int
@@ -258,30 +249,27 @@ func TestGenerateEmbeddingParallel(t *testing.T) {
 	}
 
 	tests := []struct {
-		name      string
-		numTexts  int
-		failBatch int
-		expected  expected
+		name       string
+		numTexts   int
+		shouldFail bool
+		expected   expected
 	}{
 		{
-			name:      "exact batch size produces single batch with correct order",
-			numTexts:  40,
-			failBatch: -1,
+			name:     "exact batch size produces single batch with correct order",
+			numTexts: 40,
 		},
 		{
-			name:      "multiple batches preserves order (85 texts = 3 batches of 40+40+5)",
-			numTexts:  85,
-			failBatch: -1,
+			name:     "multiple batches preserves order (85 texts = 3 batches of 40+40+5)",
+			numTexts: 85,
 		},
 		{
-			name:      "boundary case of 41 texts splits into 2 batches (40+1)",
-			numTexts:  41,
-			failBatch: -1,
+			name:     "boundary case of 41 texts splits into 2 batches (40+1)",
+			numTexts: 41,
 		},
 		{
-			name:      "returns error when a batch fails",
-			numTexts:  80,
-			failBatch: 1,
+			name:       "returns error when a batch fails",
+			numTexts:   80,
+			shouldFail: true,
 			expected: expected{
 				err: "failed to generate embeddings for batch",
 			},
@@ -290,7 +278,7 @@ func TestGenerateEmbeddingParallel(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			texts, ec := makeTextsAndMock(tt.numTexts, tt.failBatch)
+			texts, ec := makeTextsAndMock(tt.numTexts, tt.shouldFail)
 			pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 
 			result, err := pipeline.generateEmbeddingParallel(texts)
