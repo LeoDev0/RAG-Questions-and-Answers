@@ -12,10 +12,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// buildTestPDF produces a minimal but valid PDF byte slice.
-// When contentStream is empty, the resulting PDF has zero pages, which causes
-// processPDF to return "no text could be extracted from PDF".
-// When contentStream is non-empty, it is embedded as the single page's content.
 func buildTestPDF(contentStream string) []byte {
 	var buf bytes.Buffer
 	var offsets []int
@@ -56,9 +52,6 @@ var (
 	minimalPDFWithText = buildTestPDF("BT /F1 12 Tf 72 720 Td (Hello World) Tj ET")
 )
 
-// makeFileHeader builds a multipart.FileHeader by round-tripping through a real
-// multipart writer and reader. This is the only way to obtain a valid
-// FileHeader (with a working Open() method) outside of an HTTP request.
 func makeFileHeader(t *testing.T, filename, contentType string, content []byte) *multipart.FileHeader {
 	t.Helper()
 	body := new(bytes.Buffer)
