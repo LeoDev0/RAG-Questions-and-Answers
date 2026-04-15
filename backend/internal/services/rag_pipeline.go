@@ -25,24 +25,26 @@ const (
 )
 
 type RAGPipeline struct {
-	config         *config.Config
-	openaiClient   openai.Client
-	deepseekClient openai.Client
-	vectorStore    vectorstore.VectorStore
-	textSplitter   *utils.TextSplitter
-	mutex          sync.RWMutex
+	config           *config.Config
+	embeddingCreator EmbeddingCreator
+	chatCompleter    ChatCompletionCreator
+	vectorStore      vectorstore.VectorStore
+	textSplitter     *utils.TextSplitter
+	mutex            sync.RWMutex
 }
 
 func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RAGPipeline {
+	openaiClient := openai.NewClient(option.WithAPIKey(cfg.OpenAIAPIKey))
+	deepseekClient := openai.NewClient(
+		option.WithAPIKey(cfg.DeepSeekAPIKey),
+		option.WithBaseURL("https://api.deepseek.com/v1"),
+	)
 	return &RAGPipeline{
-		config:       cfg,
-		openaiClient: openai.NewClient(option.WithAPIKey(cfg.OpenAIAPIKey)),
-		deepseekClient: openai.NewClient(
-			option.WithAPIKey(cfg.DeepSeekAPIKey),
-			option.WithBaseURL("https://api.deepseek.com/v1"),
-		),
-		vectorStore:  vectorStore,
-		textSplitter: utils.NewTextSplitter(chunkSize, chunkOverlap),
+		config:           cfg,
+		embeddingCreator: &openaiClient.Embeddings,
+		chatCompleter:    &deepseekClient.Chat.Completions,
+		vectorStore:      vectorStore,
+		textSplitter:     utils.NewTextSplitter(chunkSize, chunkOverlap),
 	}
 }
 
@@ -119,7 +121,7 @@ func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
 }
 
 func (rp *RAGPipeline) generateEmbedding(text string) ([]float64, error) {
-	embedding, err := rp.openaiClient.Embeddings.New(context.TODO(), openai.EmbeddingNewParams{
+	embedding, err := rp.embeddingCreator.New(context.TODO(), openai.EmbeddingNewParams{
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfString: openai.String(text),
 		},
@@ -147,7 +149,7 @@ func (rp *RAGPipeline) generateEmbeddingBatch(texts []string) ([][]float64, erro
 		return nil, fmt.Errorf("no texts provided for batch embedding")
 	}
 
-	embedding, err := rp.openaiClient.Embeddings.New(context.TODO(), openai.EmbeddingNewParams{
+	embedding, err := rp.embeddingCreator.New(context.TODO(), openai.EmbeddingNewParams{
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfArrayOfStrings: texts,
 		},
@@ -243,7 +245,7 @@ Question: %s
 
 Please answer the question based on the context provided. If the answer is not in the context, say "I don't have enough information to answer this question."`, contextInfo, question)
 
-	completion, err := rp.deepseekClient.Chat.Completions.New(context.TODO(), openai.ChatCompletionNewParams{
+	completion, err := rp.chatCompleter.New(context.TODO(), openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(prompt),
 		},
