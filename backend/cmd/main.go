@@ -44,6 +44,7 @@ func main() {
 	{
 		api.POST("/upload", uploadHandler.HandleUpload)
 		api.POST("/query", queryHandler.HandleQuery)
+		api.POST("/query/stream", queryHandler.HandleQueryStream)
 	}
 
 	router.GET("/health", healthHandler.HandleHealth)

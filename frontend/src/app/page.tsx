@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChatMessage, RAGResponse, UploadResponse, ErrorResponse } from '@/types';
+import { ChatMessage, StreamEvent, UploadResponse, ErrorResponse } from '@/types';
 
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -60,54 +60,115 @@ export default function Home() {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
+    const question = input;
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
-      content: input,
+      content: question,
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    const assistantId = (Date.now() + 1).toString();
+    const assistantMessage: ChatMessage = {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage, assistantMessage]);
     setInput('');
     setIsLoading(true);
 
+    const appendToAssistant = (append: string) => {
+      setMessages(prev =>
+        prev.map(m => (m.id === assistantId ? { ...m, content: m.content + append } : m))
+      );
+    };
+
+    const setAssistantContent = (content: string) => {
+      setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content } : m)));
+    };
+
+    const setAssistantSources = (sources: StreamEvent & { type: 'sources' }) => {
+      setMessages(prev =>
+        prev.map(m =>
+          m.id === assistantId ? { ...m, sources: sources.sources } : m
+        )
+      );
+    };
+
     try {
       const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
-      const response = await fetch(`${backendUrl}/api/query`, {
+      const response = await fetch(`${backendUrl}/api/query/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: input }),
+        body: JSON.stringify({ question }),
       });
 
-      if (response.ok) {
-        const result: RAGResponse = await response.json();
-        const assistantMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: result.answer,
-          timestamp: new Date(),
-          sources: result.sources,
-        };
-
-        setMessages(prev => [...prev, assistantMessage]);
-      } else {
+      if (!response.ok) {
         const error: ErrorResponse = await response.json();
-        const errorMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: `Sorry, there was an error: ${error.error}`,
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, errorMessage]);
+        setAssistantContent(`Sorry, there was an error: ${error.error}`);
+        return;
+      }
+
+      if (!response.body) {
+        setAssistantContent('Sorry, the streaming response was empty.');
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let done = false;
+
+      while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        if (streamDone) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        let delimiterIndex = buffer.indexOf('\n\n');
+        while (delimiterIndex !== -1) {
+          const frame = buffer.slice(0, delimiterIndex);
+          buffer = buffer.slice(delimiterIndex + 2);
+          delimiterIndex = buffer.indexOf('\n\n');
+
+          const dataLine = frame
+            .split('\n')
+            .find(line => line.startsWith('data:'));
+          if (!dataLine) continue;
+
+          const payload = dataLine.slice('data:'.length).trim();
+          if (!payload) continue;
+
+          let event: StreamEvent;
+          try {
+            event = JSON.parse(payload) as StreamEvent;
+          } catch {
+            continue;
+          }
+
+          switch (event.type) {
+            case 'sources':
+              setAssistantSources(event);
+              break;
+            case 'token':
+              setIsLoading(false);
+              appendToAssistant(event.content);
+              break;
+            case 'error':
+              setAssistantContent(`Sorry, there was an error: ${event.error}`);
+              done = true;
+              break;
+            case 'done':
+              done = true;
+              break;
+          }
+        }
       }
     } catch {
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'Sorry, there was an error processing your question.',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
+      setAssistantContent('Sorry, there was an error processing your question.');
     } finally {
       setIsLoading(false);
     }
@@ -136,22 +197,24 @@ export default function Home() {
         {messages.length === 0 ? (
           <p className="text-gray-500 text-center">Upload a document and start asking questions!</p>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'
-                }`}
-            >
+          messages
+            .filter(message => message.role === 'user' || message.content.length > 0)
+            .map((message) => (
               <div
-                className={`inline-block p-3 rounded-lg max-w-xs lg:max-w-md ${message.role === 'user'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-black'
+                key={message.id}
+                className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'
                   }`}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <div
+                  className={`inline-block p-3 rounded-lg max-w-xs lg:max-w-md ${message.role === 'user'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-black'
+                    }`}
+                >
+                  <p className="whitespace-pre-wrap">{message.content}</p>
+                </div>
               </div>
-            </div>
-          ))
+            ))
         )}
         {isLoading && (
           <div className="text-left">

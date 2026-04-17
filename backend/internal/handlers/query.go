@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"rag-backend/pkg/codes"
 
@@ -10,11 +11,18 @@ import (
 	"rag-backend/pkg/types"
 )
 
-type QueryHandler struct {
-	ragPipeline *services.RAGPipeline
+// QueryService captures the subset of *services.RAGPipeline the handler
+// consumes so tests can supply lightweight fakes.
+type QueryService interface {
+	Query(question string) (*types.RAGResponse, error)
+	QueryStream(ctx context.Context, question string) (<-chan services.StreamEvent, error)
 }
 
-func NewQueryHandler(ragPipeline *services.RAGPipeline) *QueryHandler {
+type QueryHandler struct {
+	ragPipeline QueryService
+}
+
+func NewQueryHandler(ragPipeline QueryService) *QueryHandler {
 	return &QueryHandler{
 		ragPipeline: ragPipeline,
 	}
