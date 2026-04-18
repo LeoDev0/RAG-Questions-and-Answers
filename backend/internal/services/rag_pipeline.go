@@ -102,14 +102,25 @@ type StreamEvent struct {
 // on clean finish or Err on failure. The channel is closed when the stream
 // ends or ctx is cancelled.
 func (rp *RAGPipeline) QueryStream(ctx context.Context, question string) (<-chan StreamEvent, error) {
+	relevantDocs, contextInfo, err := rp.retrieveContext(question)
+	if err != nil {
+		return nil, err
+	}
+
+	events := make(chan StreamEvent)
+	go rp.streamCompletion(ctx, relevantDocs, contextInfo, question, events)
+	return events, nil
+}
+
+func (rp *RAGPipeline) retrieveContext(question string) ([]types.DocumentChunk, string, error) {
 	queryEmbedding, err := rp.generateEmbedding(question)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate embedding for query: %w", err)
+		return nil, "", fmt.Errorf("failed to generate embedding for query: %w", err)
 	}
 
 	scoredChunks, err := rp.vectorStore.Search(queryEmbedding, maxContentChunks)
 	if err != nil {
-		return nil, fmt.Errorf("failed to search vector store: %w", err)
+		return nil, "", fmt.Errorf("failed to search vector store: %w", err)
 	}
 
 	var contextBuilder strings.Builder
@@ -122,9 +133,7 @@ func (rp *RAGPipeline) QueryStream(ctx context.Context, question string) (<-chan
 		relevantDocs[i] = scored.Chunk
 	}
 
-	events := make(chan StreamEvent)
-	go rp.streamCompletion(ctx, relevantDocs, contextBuilder.String(), question, events)
-	return events, nil
+	return relevantDocs, contextBuilder.String(), nil
 }
 
 func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.DocumentChunk, contextInfo, question string, events chan<- StreamEvent) {
@@ -169,28 +178,12 @@ func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.Doc
 }
 
 func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
-	queryEmbedding, err := rp.generateEmbedding(question)
+	relevantDocs, contextInfo, err := rp.retrieveContext(question)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate embedding for query: %w", err)
+		return nil, err
 	}
 
-	scoredChunks, err := rp.vectorStore.Search(queryEmbedding, maxContentChunks)
-	if err != nil {
-		return nil, fmt.Errorf("failed to search vector store: %w", err)
-	}
-
-	// Build context from relevant documents
-	var contextBuilder strings.Builder
-	relevantDocs := make([]types.DocumentChunk, len(scoredChunks))
-	for i, scored := range scoredChunks {
-		if i > 0 {
-			contextBuilder.WriteString("\n\n")
-		}
-		contextBuilder.WriteString(scored.Chunk.Content)
-		relevantDocs[i] = scored.Chunk
-	}
-
-	answer, err := rp.generateResponse(contextBuilder.String(), question)
+	answer, err := rp.generateResponse(contextInfo, question)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate response: %w", err)
 	}
