@@ -94,6 +94,8 @@ This project follows a **decoupled architecture** with separate backend and fron
 ├── frontend/         # Next.js React application
 │   ├── src/
 │   │   ├── app/      # Next.js pages and components
+│   │   ├── lib/
+│   │   │   └── api/  # Query-mode dispatcher (streaming vs single-shot)
 │   │   └── types/    # Frontend type definitions (REST-compliant)
 │   ├── package.json
 │   ├── tsconfig.json
@@ -119,9 +121,12 @@ This project follows a **decoupled architecture** with separate backend and fron
   - `POST /api/upload` - Processes and stores documents (PDF/text, max 10MB)
     - Success: HTTP 200 with `UploadResponse`
     - Error: HTTP 400/500 with `ErrorResponse`
-  - `POST /api/query` - Performs RAG queries against uploaded documents
+  - `POST /api/query` - Performs RAG queries against uploaded documents (single response)
     - Success: HTTP 200 with `QueryResponse`  
     - Error: HTTP 400/500 with `ErrorResponse`
+  - `POST /api/query/stream` - Same as `/api/query` but streams the answer via Server-Sent Events
+    - Success: HTTP 200 with `text/event-stream`; emits `sources`, `token`, `done`, and `error` events (each as `data: {...}\n\n`)
+    - Error: HTTP 400/500 with `ErrorResponse` (before the stream begins) or an inline `error` SSE event
   - `GET /health` - Health check endpoint
 
 - **Key Components**
@@ -148,7 +153,7 @@ This project follows a **decoupled architecture** with separate backend and fron
 
 ### Data Flow
 1. **Document Upload**: Frontend uploads files → Backend `/api/upload` → `DocumentProcessor` → chunked → embedded → stored in `VectorStore` interface
-2. **Question Answering**: Frontend sends question → Backend `/api/query` → `VectorStore.Search()` → context retrieval → LLM prompt → response → Frontend displays clean answer
+2. **Question Answering**: Frontend sends question → Backend `/api/query` (single response) or `/api/query/stream` (SSE) → `VectorStore.Search()` → context retrieval → LLM prompt → response → Frontend displays clean answer (rendered all at once or incrementally as tokens stream in, selectable via the response-mode toggle in the UI)
 
 ## Configuration Notes
 
@@ -187,6 +192,9 @@ When working on this project, pay attention to:
 
 ### Frontend
 - `frontend/src/app/page.tsx` - Main application interface with REST API integration
+- `frontend/src/lib/api/query.ts` - `sendQuery(mode, ...)` dispatcher and `QueryCallbacks` contract; pick `'stream'` or `'single'`
+- `frontend/src/lib/api/queryStream.ts` - SSE parser for `/api/query/stream`
+- `frontend/src/lib/api/queryOnce.ts` - Single-shot client for `/api/query`
 - `frontend/src/types/index.ts` - Frontend type definitions (REST-compliant)
 - Frontend environment configuration for backend URL
 
