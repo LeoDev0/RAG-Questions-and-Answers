@@ -1,0 +1,58 @@
+# CI - run Go tests and enforce minimum coverage
+name: CI - Go tests & coverage
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  # default minimum coverage percentage
+  MIN_COVERAGE: 80
+
+jobs:
+  go-tests:
+    name: go-tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.25
+
+      - name: Download modules
+        run: |
+          go mod download
+
+      - name: Run tests with coverage and enforce threshold
+        env:
+          MIN_COVERAGE: ${{ env.MIN_COVERAGE }}
+        run: |
+          set -euo pipefail
+          # Run tests and produce coverage profile
+          go test ./... -coverprofile=coverage.out -covermode=atomic
+          if [ ! -f coverage.out ]; then
+            echo "coverage.out not found"
+            exit 1
+          fi
+          # Extract total coverage, e.g. "total: (statements) 82.3%"
+          total=$(go tool cover -func=coverage.out | tail -n1 | awk '{print $3}')
+          pct=${total%\%}
+          echo "Go coverage: $pct%"
+          # numeric comparison; fail if below threshold
+          if awk "BEGIN {exit !($pct >= ${MIN_COVERAGE})}"; then
+            echo "Coverage OK (>= ${MIN_COVERAGE}%)"
+          else
+            echo "Coverage ${pct}% is below threshold ${MIN_COVERAGE}%"
+            exit 1
+          fi
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: coverage.out
