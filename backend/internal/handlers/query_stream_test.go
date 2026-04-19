@@ -21,19 +21,6 @@ import (
 	"rag-backend/pkg/types"
 )
 
-type fakeQueryService struct {
-	queryFunc       func(question string) (*types.RAGResponse, error)
-	queryStreamFunc func(ctx context.Context, question string) (<-chan services.StreamEvent, error)
-}
-
-func (f *fakeQueryService) Query(question string) (*types.RAGResponse, error) {
-	return f.queryFunc(question)
-}
-
-func (f *fakeQueryService) QueryStream(ctx context.Context, question string) (<-chan services.StreamEvent, error) {
-	return f.queryStreamFunc(ctx, question)
-}
-
 func parseSSEFrames(body string) []map[string]any {
 	var frames []map[string]any
 	for _, block := range strings.Split(body, "\n\n") {
@@ -83,7 +70,7 @@ func TestHandleQueryStream_ValidationErrors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := NewQueryHandler(&fakeQueryService{})
+			h := NewQueryHandler(&mockQueryService{})
 
 			w := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(w)
@@ -104,7 +91,7 @@ func TestHandleQueryStream_ValidationErrors(t *testing.T) {
 func TestHandleQueryStream_PreStreamError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	h := NewQueryHandler(&fakeQueryService{
+	h := NewQueryHandler(&mockQueryService{
 		queryStreamFunc: func(_ context.Context, _ string) (<-chan services.StreamEvent, error) {
 			return nil, errors.New("vector store exploded")
 		},
@@ -174,7 +161,7 @@ func TestHandleQueryStream_SuccessPath(t *testing.T) {
 			}
 			close(ch)
 
-			h := NewQueryHandler(&fakeQueryService{
+			h := NewQueryHandler(&mockQueryService{
 				queryStreamFunc: func(_ context.Context, _ string) (<-chan services.StreamEvent, error) {
 					return ch, nil
 				},

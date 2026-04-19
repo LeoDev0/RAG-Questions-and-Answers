@@ -11,8 +11,6 @@ import (
 	"rag-backend/pkg/types"
 )
 
-// QueryService captures the subset of *services.RAGPipeline the handler
-// consumes so tests can supply lightweight fakes.
 type QueryService interface {
 	Query(question string) (*types.RAGResponse, error)
 	QueryStream(ctx context.Context, question string) (<-chan services.StreamEvent, error)
