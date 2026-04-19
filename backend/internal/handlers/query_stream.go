@@ -58,10 +58,7 @@ func (h *QueryHandler) HandleQueryStream(c *gin.Context) {
 		return
 	}
 
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	setSSEHeaders(c)
 	c.Status(http.StatusOK)
 
 	c.Stream(func(w io.Writer) bool {
@@ -75,6 +72,17 @@ func (h *QueryHandler) HandleQueryStream(c *gin.Context) {
 			return writeStreamEvent(w, ev)
 		}
 	})
+}
+
+// setSSEHeaders configures the response headers required for Server-Sent Events:
+// declares the SSE content type, disables caching, keeps the connection open,
+// and disables proxy buffering (e.g. Nginx) so frames are flushed immediately.
+func setSSEHeaders(c *gin.Context) {
+	h := c.Writer.Header()
+	h.Set("Content-Type", "text/event-stream")
+	h.Set("Cache-Control", "no-cache")
+	h.Set("Connection", "keep-alive")
+	h.Set("X-Accel-Buffering", "no")
 }
 
 func writeStreamEvent(w io.Writer, ev services.StreamEvent) bool {
