@@ -25,10 +25,12 @@ jobs:
           go-version: 1.25
 
       - name: Download modules
+        working-directory: backend
         run: |
           go mod download
 
       - name: Run tests with coverage and enforce threshold
+        working-directory: backend
         env:
           MIN_COVERAGE: ${{ env.MIN_COVERAGE }}
         run: |
@@ -55,4 +57,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: go-coverage
-          path: coverage.out
+          path: backend/coverage.out
