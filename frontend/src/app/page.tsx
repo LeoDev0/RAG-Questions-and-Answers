@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChatMessage, StreamEvent, UploadResponse, ErrorResponse } from '@/types';
+import { ChatMessage, DocumentChunk, UploadResponse, ErrorResponse } from '@/types';
+import { sendQuery, QueryMode } from '@/lib/api/query';
 
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -9,6 +10,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [thinkingDots, setThinkingDots] = useState('');
+  const [queryMode, setQueryMode] = useState<QueryMode>('stream');
 
   // Animate thinking dots when loading
   useEffect(() => {
@@ -90,88 +92,26 @@ export default function Home() {
       setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content } : m)));
     };
 
-    const setAssistantSources = (sources: StreamEvent & { type: 'sources' }) => {
+    const setAssistantSources = (sources: DocumentChunk[]) => {
       setMessages(prev =>
-        prev.map(m =>
-          m.id === assistantId ? { ...m, sources: sources.sources } : m
-        )
+        prev.map(m => (m.id === assistantId ? { ...m, sources } : m))
       );
     };
 
-    try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
-      const response = await fetch(`${backendUrl}/api/query/stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
-      });
-
-      if (!response.ok) {
-        const error: ErrorResponse = await response.json();
-        setAssistantContent(`Sorry, there was an error: ${error.error}`);
-        return;
-      }
-
-      if (!response.body) {
-        setAssistantContent('Sorry, the streaming response was empty.');
-        return;
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let done = false;
-
-      while (!done) {
-        const { value, done: streamDone } = await reader.read();
-        if (streamDone) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        let delimiterIndex = buffer.indexOf('\n\n');
-        while (delimiterIndex !== -1) {
-          const frame = buffer.slice(0, delimiterIndex);
-          buffer = buffer.slice(delimiterIndex + 2);
-          delimiterIndex = buffer.indexOf('\n\n');
-
-          const dataLine = frame
-            .split('\n')
-            .find(line => line.startsWith('data:'));
-          if (!dataLine) continue;
-
-          const payload = dataLine.slice('data:'.length).trim();
-          if (!payload) continue;
-
-          let event: StreamEvent;
-          try {
-            event = JSON.parse(payload) as StreamEvent;
-          } catch {
-            continue;
-          }
-
-          switch (event.type) {
-            case 'sources':
-              setAssistantSources(event);
-              break;
-            case 'token':
-              setIsLoading(false);
-              appendToAssistant(event.content);
-              break;
-            case 'error':
-              setAssistantContent(`Sorry, there was an error: ${event.error}`);
-              done = true;
-              break;
-            case 'done':
-              done = true;
-              break;
-          }
-        }
-      }
-    } catch {
-      setAssistantContent('Sorry, there was an error processing your question.');
-    } finally {
-      setIsLoading(false);
-    }
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+    await sendQuery(queryMode, question, backendUrl, {
+      onSources: setAssistantSources,
+      onToken: (chunk) => {
+        setIsLoading(false);
+        appendToAssistant(chunk);
+      },
+      onError: (message) => {
+        setAssistantContent(`Sorry, there was an error: ${message}`);
+      },
+      onDone: () => {
+        setIsLoading(false);
+      },
+    });
   };
 
   return (
@@ -190,6 +130,31 @@ export default function Home() {
         {uploadStatus && (
           <p className="text-sm mt-2">{uploadStatus}</p>
         )}
+      </div>
+
+      {/* Response mode toggle */}
+      <div className="flex items-center gap-4 mb-2 text-sm">
+        <span className="font-medium">Response mode:</span>
+        <label className="flex items-center gap-1">
+          <input
+            type="radio"
+            value="stream"
+            checked={queryMode === 'stream'}
+            onChange={() => setQueryMode('stream')}
+            disabled={isLoading}
+          />
+          Streaming
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="radio"
+            value="single"
+            checked={queryMode === 'single'}
+            onChange={() => setQueryMode('single')}
+            disabled={isLoading}
+          />
+          Single response
+        </label>
       </div>
 
       {/* Chat Interface */}
