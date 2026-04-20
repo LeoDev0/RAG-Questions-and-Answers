@@ -12,8 +12,8 @@ env:
   MIN_COVERAGE: 80
 
 jobs:
-  go-tests:
-    name: go-tests
+  test:
+    name: Run Go Tests
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -25,16 +25,46 @@ jobs:
           go-version: 1.25
 
       - name: Download modules
+        working-directory: backend
         run: |
           go mod download
 
-      - name: Run tests with coverage and enforce threshold
+      - name: Run tests with coverage
+        working-directory: backend
+        run: |
+          go test ./... -coverprofile=coverage.out -covermode=atomic
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: backend/coverage.out
+
+  coverage:
+    name: Check Test Coverage
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: 1.25
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: go-coverage
+          path: backend
+
+      - name: Enforce coverage threshold
+        working-directory: backend
         env:
           MIN_COVERAGE: ${{ env.MIN_COVERAGE }}
         run: |
           set -euo pipefail
-          # Run tests and produce coverage profile
-          go test ./... -coverprofile=coverage.out -covermode=atomic
           if [ ! -f coverage.out ]; then
             echo "coverage.out not found"
             exit 1
@@ -50,9 +80,3 @@ jobs:
             echo "Coverage ${pct}% is below threshold ${MIN_COVERAGE}%"
             exit 1
           fi
-
-      - name: Upload coverage artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: go-coverage
-          path: coverage.out
