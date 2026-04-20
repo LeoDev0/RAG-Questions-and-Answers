@@ -7,6 +7,7 @@ Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can
 - Upload PDF and text documents (max 10MB)
 - Ask natural language questions about uploaded content
 - Real-time Q&A with source citations
+- Streaming responses (Server-Sent Events) with a UI toggle to fall back to single-shot replies
 - Vector-based document similarity search
 - DeepSeek LLM integration for responses
 - OpenAI embeddings for document processing
@@ -33,6 +34,8 @@ Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can
 └── frontend/         # Next.js React application
     ├── src/
     │   ├── app/      # Next.js pages
+    │   ├── lib/
+    │   │   └── api/  # Query-mode dispatcher (streaming vs single-shot)
     │   └── types/
     ├── package.json
     ├── tsconfig.json
@@ -85,7 +88,8 @@ The frontend will run on `http://localhost:3000`
 ## API Endpoints
 
 - **POST** `/api/upload` - Upload and process documents
-- **POST** `/api/query` - Ask questions about uploaded documents
+- **POST** `/api/query` - Ask questions about uploaded documents (single response)
+- **POST** `/api/query/stream` - Same as `/api/query` but streams the answer via Server-Sent Events
 - **GET** `/health` - Health check
 
 ## Environment Variables
@@ -101,7 +105,7 @@ The frontend will run on `http://localhost:3000`
 ## Technology Stack
 
 ### Backend
-- **Go 1.24.4** - Programming language
+- **Go 1.25.0** - Programming language
 - **Gin** - Web framework
 - **DeepSeek API** - Language model for responses
 - **OpenAI Embeddings** - Document vectorization
