@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { ChatMessage, RAGResponse, UploadResponse, ErrorResponse } from '@/types';
+import { ChatMessage, DocumentChunk, UploadResponse, ErrorResponse } from '@/types';
+import { sendQuery, QueryMode } from '@/lib/api/query';
 
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -9,6 +10,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string>('');
   const [thinkingDots, setThinkingDots] = useState('');
+  const [queryMode, setQueryMode] = useState<QueryMode>('stream');
 
   // Animate thinking dots when loading
   useEffect(() => {
@@ -60,57 +62,56 @@ export default function Home() {
     e.preventDefault();
     if (!input.trim() || isLoading) return;
 
+    const question = input;
     const userMessage: ChatMessage = {
       id: Date.now().toString(),
       role: 'user',
-      content: input,
+      content: question,
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    const assistantId = (Date.now() + 1).toString();
+    const assistantMessage: ChatMessage = {
+      id: assistantId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+    };
+
+    setMessages(prev => [...prev, userMessage, assistantMessage]);
     setInput('');
     setIsLoading(true);
 
-    try {
-      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
-      const response = await fetch(`${backendUrl}/api/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: input }),
-      });
+    const appendToAssistant = (append: string) => {
+      setMessages(prev =>
+        prev.map(m => (m.id === assistantId ? { ...m, content: m.content + append } : m))
+      );
+    };
 
-      if (response.ok) {
-        const result: RAGResponse = await response.json();
-        const assistantMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: result.answer,
-          timestamp: new Date(),
-          sources: result.sources,
-        };
+    const setAssistantContent = (content: string) => {
+      setMessages(prev => prev.map(m => (m.id === assistantId ? { ...m, content } : m)));
+    };
 
-        setMessages(prev => [...prev, assistantMessage]);
-      } else {
-        const error: ErrorResponse = await response.json();
-        const errorMessage: ChatMessage = {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: `Sorry, there was an error: ${error.error}`,
-          timestamp: new Date(),
-        };
-        setMessages(prev => [...prev, errorMessage]);
-      }
-    } catch {
-      const errorMessage: ChatMessage = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: 'Sorry, there was an error processing your question.',
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
+    const setAssistantSources = (sources: DocumentChunk[]) => {
+      setMessages(prev =>
+        prev.map(m => (m.id === assistantId ? { ...m, sources } : m))
+      );
+    };
+
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
+    await sendQuery(queryMode, question, backendUrl, {
+      onSources: setAssistantSources,
+      onToken: (chunk) => {
+        setIsLoading(false);
+        appendToAssistant(chunk);
+      },
+      onError: (message) => {
+        setAssistantContent(`Sorry, there was an error: ${message}`);
+      },
+      onDone: () => {
+        setIsLoading(false);
+      },
+    });
   };
 
   return (
@@ -131,27 +132,54 @@ export default function Home() {
         )}
       </div>
 
+      {/* Response mode toggle */}
+      <div className="flex items-center gap-4 mb-2 text-sm">
+        <span className="font-medium">Response mode:</span>
+        <label className="flex items-center gap-1">
+          <input
+            type="radio"
+            value="stream"
+            checked={queryMode === 'stream'}
+            onChange={() => setQueryMode('stream')}
+            disabled={isLoading}
+          />
+          Streaming
+        </label>
+        <label className="flex items-center gap-1">
+          <input
+            type="radio"
+            value="single"
+            checked={queryMode === 'single'}
+            onChange={() => setQueryMode('single')}
+            disabled={isLoading}
+          />
+          Single response
+        </label>
+      </div>
+
       {/* Chat Interface */}
       <div className="border rounded-lg h-96 mb-4 overflow-y-auto p-4 bg-gray-50">
         {messages.length === 0 ? (
           <p className="text-gray-500 text-center">Upload a document and start asking questions!</p>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'
-                }`}
-            >
+          messages
+            .filter(message => message.role === 'user' || message.content.length > 0)
+            .map((message) => (
               <div
-                className={`inline-block p-3 rounded-lg max-w-xs lg:max-w-md ${message.role === 'user'
-                  ? 'bg-blue-500 text-white'
-                  : 'bg-gray-200 text-black'
+                key={message.id}
+                className={`mb-4 ${message.role === 'user' ? 'text-right' : 'text-left'
                   }`}
               >
-                <p className="whitespace-pre-wrap">{message.content}</p>
+                <div
+                  className={`inline-block p-3 rounded-lg max-w-xs lg:max-w-md ${message.role === 'user'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-gray-200 text-black'
+                    }`}
+                >
+                  <p className="whitespace-pre-wrap">{message.content}</p>
+                </div>
               </div>
-            </div>
-          ))
+            ))
         )}
         {isLoading && (
           <div className="text-left">

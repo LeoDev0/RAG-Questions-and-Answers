@@ -35,3 +35,9 @@ export interface ErrorResponse {
   code?: string;
   details?: string;
 }
+
+export type StreamEvent =
+  | { type: 'sources'; sources: DocumentChunk[]; confidence: number }
+  | { type: 'token'; content: string }
+  | { type: 'done' }
+  | { type: 'error'; error: string; code?: string };

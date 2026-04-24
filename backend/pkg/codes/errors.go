@@ -14,4 +14,5 @@ const (
 	ErrInvalidRequest = "INVALID_REQUEST"
 	ErrEmptyQuestion  = "EMPTY_QUESTION"
 	ErrQueryError     = "QUERY_ERROR"
+	ErrStreamError    = "STREAM_ERROR"
 )

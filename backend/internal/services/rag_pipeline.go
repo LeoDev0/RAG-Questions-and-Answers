@@ -42,7 +42,7 @@ func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RA
 	return &RAGPipeline{
 		config:           cfg,
 		embeddingCreator: &openaiClient.Embeddings,
-		chatCompleter:    &deepseekClient.Chat.Completions,
+		chatCompleter:    &chatCompletionsAdapter{inner: &deepseekClient.Chat.Completions},
 		vectorStore:      vectorStore,
 		textSplitter:     utils.NewTextSplitter(chunkSize, chunkOverlap),
 	}
@@ -86,18 +86,36 @@ func (rp *RAGPipeline) AddDocumentToVectorStore(chunks []types.DocumentChunk) er
 	return nil
 }
 
-func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
+type StreamEvent struct {
+	Sources    []types.DocumentChunk
+	Confidence float64
+	Token      string
+	Err        error
+	Done       bool
+}
+
+func (rp *RAGPipeline) QueryStream(ctx context.Context, question string) (<-chan StreamEvent, error) {
+	relevantDocs, contextInfo, err := rp.retrieveContext(question)
+	if err != nil {
+		return nil, err
+	}
+
+	events := make(chan StreamEvent)
+	go rp.streamCompletion(ctx, relevantDocs, contextInfo, question, events)
+	return events, nil
+}
+
+func (rp *RAGPipeline) retrieveContext(question string) ([]types.DocumentChunk, string, error) {
 	queryEmbedding, err := rp.generateEmbedding(question)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate embedding for query: %w", err)
+		return nil, "", fmt.Errorf("failed to generate embedding for query: %w", err)
 	}
 
 	scoredChunks, err := rp.vectorStore.Search(queryEmbedding, maxContentChunks)
 	if err != nil {
-		return nil, fmt.Errorf("failed to search vector store: %w", err)
+		return nil, "", fmt.Errorf("failed to search vector store: %w", err)
 	}
 
-	// Build context from relevant documents
 	var contextBuilder strings.Builder
 	relevantDocs := make([]types.DocumentChunk, len(scoredChunks))
 	for i, scored := range scoredChunks {
@@ -108,7 +126,57 @@ func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
 		relevantDocs[i] = scored.Chunk
 	}
 
-	answer, err := rp.generateResponse(contextBuilder.String(), question)
+	return relevantDocs, contextBuilder.String(), nil
+}
+
+func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.DocumentChunk, contextInfo, question string, events chan<- StreamEvent) {
+	defer close(events)
+
+	send := func(ev StreamEvent) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case events <- ev:
+			return true
+		}
+	}
+
+	if !send(StreamEvent{Sources: sources, Confidence: defaultConfidence}) {
+		return
+	}
+
+	stream := rp.chatCompleter.NewStreamingIter(ctx, chatCompletionParams(buildPrompt(contextInfo, question)))
+	defer stream.Close()
+
+	for stream.Next() {
+		chunk := stream.Current()
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+		content := chunk.Choices[0].Delta.Content
+		if content == "" {
+			continue
+		}
+		if !send(StreamEvent{Token: content}) {
+			return
+		}
+	}
+
+	if err := stream.Err(); err != nil {
+		send(StreamEvent{Err: fmt.Errorf("stream failed: %w", err)})
+		return
+	}
+
+	send(StreamEvent{Done: true})
+}
+
+func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
+	relevantDocs, contextInfo, err := rp.retrieveContext(question)
+	if err != nil {
+		return nil, err
+	}
+
+	answer, err := rp.generateResponse(contextInfo, question)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate response: %w", err)
 	}
@@ -237,21 +305,27 @@ func (rp *RAGPipeline) generateEmbeddingParallel(texts []string) ([][]float64, e
 	return allEmbeddings, nil
 }
 
-func (rp *RAGPipeline) generateResponse(contextInfo, question string) (string, error) {
-	prompt := fmt.Sprintf(`Context information:
+func buildPrompt(contextInfo, question string) string {
+	return fmt.Sprintf(`Context information:
 %s
 
 Question: %s
 
 Please answer the question based on the context provided. If the answer is not in the context, say "I don't have enough information to answer this question."`, contextInfo, question)
+}
 
-	completion, err := rp.chatCompleter.New(context.TODO(), openai.ChatCompletionNewParams{
+func chatCompletionParams(prompt string) openai.ChatCompletionNewParams {
+	return openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
 			openai.UserMessage(prompt),
 		},
 		Model:       "deepseek-chat",
-		Temperature: openai.Float(0.0), // The model will be deterministic and always choose the most likely next token. Same question = same answer every time
-	})
+		Temperature: openai.Float(0.0), // Deterministic: same question = same answer.
+	}
+}
+
+func (rp *RAGPipeline) generateResponse(contextInfo, question string) (string, error) {
+	completion, err := rp.chatCompleter.New(context.TODO(), chatCompletionParams(buildPrompt(contextInfo, question)))
 	if err != nil {
 		return "", fmt.Errorf("failed to generate response: %w", err)
 	}
