@@ -1,0 +1,36 @@
+# Patterns excluded from the coverage percentage gate.
+# One entry per line. Lines starting with '#' and blank lines are ignored.
+# Entries are matched as regular expressions against the file paths that
+# appear in coverage.out (e.g. "rag-backend/internal/handlers/health.go").
+#
+# Tips:
+#   - Escape dots in file names:              internal/handlers/health\.go
+#   - Match a whole directory/package:        /cmd/
+#   - Strict match anchored at module root:   ^rag-backend/cmd/
+#   - Match a suffix (e.g. mocks):            _mock\.go$
+#
+# Notes:
+#   - Patterns are substring regexes (grep -E); they match anywhere in the
+#     path unless you anchor them with ^ or $.
+#   - A leading "/" (e.g. /cmd/) avoids accidental matches inside another
+#     word like "commander/". Use ^rag-backend/<dir>/ when you need to be
+#     sure only the top-level package is matched.
+#
+# Examples:
+#   # Files
+#   internal/handlers/health\.go
+#   _mock\.go$
+#
+#   # Whole packages / directories
+#   /cmd/
+#   /internal/mocks/
+#   ^rag-backend/internal/repositories/vectorstore/memory/
+
+# Entry point — nothing meaningful to test
+cmd/main\.go
+
+# Trivial liveness endpoint
+internal/handlers/health\.go
+
+# Mock files
+_mock\.go$

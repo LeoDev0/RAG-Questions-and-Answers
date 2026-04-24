@@ -69,10 +69,25 @@ jobs:
             echo "coverage.out not found"
             exit 1
           fi
+          # Build the ignore regex from .coverageignore (one pattern per line,
+          # '#' comments and blank lines skipped). Easy to add/remove entries.
+          IGNORE_FILE=".coverageignore"
+          if [ -f "$IGNORE_FILE" ]; then
+            IGNORE_PATTERN=$(grep -Ev '^[[:space:]]*(#|$)' "$IGNORE_FILE" | paste -sd '|' -)
+          else
+            IGNORE_PATTERN=""
+          fi
+          # Preserve the "mode:" header line, drop ignored files from the rest
+          if [ -n "$IGNORE_PATTERN" ]; then
+            echo "Ignoring coverage entries matching: $IGNORE_PATTERN"
+            { head -n1 coverage.out; tail -n +2 coverage.out | grep -Ev "$IGNORE_PATTERN"; } > coverage.filtered.out
+          else
+            cp coverage.out coverage.filtered.out
+          fi
           # Extract total coverage, e.g. "total: (statements) 82.3%"
-          total=$(go tool cover -func=coverage.out | tail -n1 | awk '{print $3}')
+          total=$(go tool cover -func=coverage.filtered.out | tail -n1 | awk '{print $3}')
           pct=${total%\%}
-          echo "Go coverage: $pct%"
+          echo "Go coverage (filtered): $pct%"
           # numeric comparison; fail if below threshold
           if awk "BEGIN {exit !($pct >= ${MIN_COVERAGE})}"; then
             echo "Coverage OK (>= ${MIN_COVERAGE}%)"
