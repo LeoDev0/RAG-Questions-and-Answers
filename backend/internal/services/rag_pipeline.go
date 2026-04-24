@@ -86,8 +86,6 @@ func (rp *RAGPipeline) AddDocumentToVectorStore(chunks []types.DocumentChunk) er
 	return nil
 }
 
-// StreamEvent is a unit emitted by QueryStream. Exactly one of Sources (with
-// Confidence), Token, Err, or Done is meaningful per event.
 type StreamEvent struct {
 	Sources    []types.DocumentChunk
 	Confidence float64
@@ -96,11 +94,6 @@ type StreamEvent struct {
 	Done       bool
 }
 
-// QueryStream runs the retrieval stage synchronously (so pre-stream errors
-// surface normally) and then emits events on the returned channel: first the
-// retrieved sources, then one Token event per streamed delta, then either Done
-// on clean finish or Err on failure. The channel is closed when the stream
-// ends or ctx is cancelled.
 func (rp *RAGPipeline) QueryStream(ctx context.Context, question string) (<-chan StreamEvent, error) {
 	relevantDocs, contextInfo, err := rp.retrieveContext(question)
 	if err != nil {
