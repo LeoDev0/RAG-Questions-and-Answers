@@ -155,7 +155,7 @@ jobs:
           # Extract total coverage, e.g. "total: (statements) 82.3%"
           total=$(go tool cover -func=coverage.filtered.out | tail -n1 | awk '{print $3}')
           pct=${total%\%}
-          echo "Go coverage (filtered): $pct%"
+          echo "Go coverage: $pct%"
           # numeric comparison; fail if below threshold
           if awk "BEGIN {exit !($pct >= ${MIN_COVERAGE})}"; then
             echo "Coverage OK (>= ${MIN_COVERAGE}%)"
