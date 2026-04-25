@@ -1,36 +1,33 @@
-# Patterns excluded from the coverage percentage gate.
-# One entry per line. Lines starting with '#' and blank lines are ignored.
-# Entries are matched as regular expressions against the file paths that
-# appear in coverage.out (e.g. "rag-backend/internal/handlers/health.go").
+# Patterns excluded from the coverage percentage gate. Syntax is inspired by .gitignore
 #
-# Tips:
-#   - Escape dots in file names:              internal/handlers/health\.go
-#   - Match a whole directory/package:        /cmd/
-#   - Strict match anchored at module root:   ^rag-backend/cmd/
-#   - Match a suffix (e.g. mocks):            _mock\.go$
+# One entry per line. '#' comments and blank lines are ignored.
+# Entries match against file paths as they appear in coverage.out
+# (e.g. rag-backend/internal/handlers/health.go).
 #
-# Notes:
-#   - Patterns are substring regexes (grep -E); they match anywhere in the
-#     path unless you anchor them with ^ or $.
-#   - A leading "/" (e.g. /cmd/) avoids accidental matches inside another
-#     word like "commander/". Use ^rag-backend/<dir>/ when you need to be
-#     sure only the top-level package is matched.
+# Syntax:
+#   path/to/file.go      Literal path — no escaping needed (dots are literal)
+#   dir/                 Ignore an entire directory (recursive)
+#   *                    Matches anything except "/"
+#   **                   Matches anything, including "/"
+#   ?                    Matches a single character (not "/")
+#   /foo/                Leading "/" anchors to the module root
+#   !pattern             Negation — re-include a path matched by an earlier rule
+#   re:<regex>           Escape hatch: use <regex> as a raw ERE regex
 #
 # Examples:
-#   # Files
-#   internal/handlers/health\.go
-#   _mock\.go$
-#
-#   # Whole packages / directories
-#   /cmd/
-#   /internal/mocks/
-#   ^rag-backend/internal/repositories/vectorstore/memory/
+#   internal/handlers/health.go              # a single file
+#   cmd/                                     # a whole directory (recursive)
+#   *_mock.go                                # any *_mock.go, anywhere
+#   internal/**/testdata/                    # testdata dirs at any depth
+#   /cmd/                                    # only the top-level cmd/
+#   !internal/mocks/keep_me.go               # exception to a broader rule above
+#   re:^rag-backend/internal/gen/.*\.pb\.go$ # full regex when you need it
 
 # Entry point — nothing meaningful to test
-cmd/main\.go
+cmd/main.go
 
 # Trivial liveness endpoint
-internal/handlers/health\.go
+internal/handlers/health.go
 
-# Mock files
-_mock\.go$
+# Mock files (anywhere in the tree)
+*_mock.go
