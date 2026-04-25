@@ -69,8 +69,91 @@ jobs:
             echo "coverage.out not found"
             exit 1
           fi
+          # Build ignore/negation regexes from .coverageignore. See backend/.coverageignore for details.
+          IGNORE_FILE=".coverageignore"
+
+          glob_to_regex() {
+            local pat="$1"
+            case "$pat" in
+              re:*) printf '%s' "${pat#re:}"; return ;;
+            esac
+
+            # Trailing "/" means "this directory, recursively".
+            local trailing_slash=0
+            case "$pat" in */) trailing_slash=1; pat="${pat%/}" ;; esac
+
+            # Leading "/" anchors to the module root; record and strip it.
+            local anchor_root=0
+            case "$pat" in /*) anchor_root=1; pat="${pat#/}" ;; esac
+
+            # Escape regex metachars (., +, (, ), {, }, |, ^, $, [, ], \)
+            # but leave *, ?, / alone — they are expanded next.
+            pat=$(printf '%s' "$pat" | sed -E 's/[].+(){}|^$\\.[]/\\&/g')
+
+            # Expand globs: ** -> .*, * -> [^/]*, ? -> [^/]
+            # Use a placeholder so ** isn't eaten by the * rule.
+            pat=$(printf '%s' "$pat" \
+              | sed -e 's|\*\*|__DOUBLESTAR__|g' \
+                    -e 's|\*|[^/]*|g' \
+                    -e 's|?|[^/]|g' \
+                    -e 's|__DOUBLESTAR__|.*|g')
+
+            local prefix suffix
+            if [ "$anchor_root" -eq 1 ]; then
+              # module root == first path segment in coverage.out
+              prefix='^[^/]+/'
+            else
+              prefix='(^|/)'
+            fi
+            if [ "$trailing_slash" -eq 1 ]; then
+              suffix='(/|$)'
+            else
+              suffix=''
+            fi
+            printf '%s%s%s' "$prefix" "$pat" "$suffix"
+          }
+
+          INCLUDES=()
+          EXCLUDES=()
+          if [ -f "$IGNORE_FILE" ]; then
+            while IFS= read -r raw || [ -n "$raw" ]; do
+              line="${raw#"${raw%%[![:space:]]*}"}"
+              line="${line%"${line##*[![:space:]]}"}"
+              case "$line" in ''|\#*) continue ;; esac
+              if [ "${line#!}" != "$line" ]; then
+                EXCLUDES+=("$(glob_to_regex "${line#!}")")
+              else
+                INCLUDES+=("$(glob_to_regex "$line")")
+              fi
+            done < "$IGNORE_FILE"
+          fi
+
+          join_alt() { local IFS='|'; printf '%s' "$*"; }
+          INCLUDE_RE=""
+          EXCLUDE_RE=""
+          [ "${#INCLUDES[@]}" -gt 0 ] && INCLUDE_RE=$(join_alt "${INCLUDES[@]}")
+          [ "${#EXCLUDES[@]}" -gt 0 ] && EXCLUDE_RE=$(join_alt "${EXCLUDES[@]}")
+
+          echo "Ignore regex:     ${INCLUDE_RE:-<none>}"
+          echo "Re-include regex: ${EXCLUDE_RE:-<none>}"
+
+          # Build coverage.filtered.out: keep "mode:" header; drop lines
+          # matching INCLUDE_RE unless they also match EXCLUDE_RE.
+          head -n1 coverage.out > coverage.filtered.out
+          if [ -n "$INCLUDE_RE" ]; then
+            if [ -n "$EXCLUDE_RE" ]; then
+              tail -n +2 coverage.out \
+                | awk -v inc="$INCLUDE_RE" -v exc="$EXCLUDE_RE" \
+                    '($0 ~ inc) && !($0 ~ exc) { next } { print }' \
+                >> coverage.filtered.out
+            else
+              tail -n +2 coverage.out | grep -Ev "$INCLUDE_RE" >> coverage.filtered.out
+            fi
+          else
+            tail -n +2 coverage.out >> coverage.filtered.out
+          fi
           # Extract total coverage, e.g. "total: (statements) 82.3%"
-          total=$(go tool cover -func=coverage.out | tail -n1 | awk '{print $3}')
+          total=$(go tool cover -func=coverage.filtered.out | tail -n1 | awk '{print $3}')
           pct=${total%\%}
           echo "Go coverage: $pct%"
           # numeric comparison; fail if below threshold
