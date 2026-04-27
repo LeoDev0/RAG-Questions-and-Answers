@@ -81,12 +81,19 @@ func TestHandleUpload(t *testing.T) {
 		processDocErr      error
 		addToStoreErr      error
 	}
+	type calls struct {
+		processFile     int
+		createDocument  int
+		processDocument int
+		addToStore      int
+	}
 	type expected struct {
 		status        int
 		code          string
 		detailSubstr  string
 		errorContains string
 		document      *types.UploadDocumentSummary
+		calls         calls
 	}
 
 	fixedID := "doc-123"
@@ -117,6 +124,7 @@ func TestHandleUpload(t *testing.T) {
 			expected: expected{
 				status: http.StatusBadRequest,
 				code:   codes.ErrNoFile,
+				calls:  calls{},
 			},
 		},
 		{
@@ -128,6 +136,7 @@ func TestHandleUpload(t *testing.T) {
 				status:        http.StatusBadRequest,
 				code:          codes.ErrFileTooLarge,
 				errorContains: "10MB",
+				calls:         calls{},
 			},
 		},
 		{
@@ -140,6 +149,7 @@ func TestHandleUpload(t *testing.T) {
 				status:       http.StatusInternalServerError,
 				code:         codes.ErrProcessing,
 				detailSubstr: "read boom",
+				calls:        calls{processFile: 1},
 			},
 		},
 		{
@@ -156,6 +166,7 @@ func TestHandleUpload(t *testing.T) {
 				status:       http.StatusInternalServerError,
 				code:         codes.ErrChunking,
 				detailSubstr: "embed boom",
+				calls:        calls{processFile: 1, createDocument: 1, processDocument: 1},
 			},
 		},
 		{
@@ -173,6 +184,7 @@ func TestHandleUpload(t *testing.T) {
 				status:       http.StatusInternalServerError,
 				code:         codes.ErrStorage,
 				detailSubstr: "store boom",
+				calls:        calls{processFile: 1, createDocument: 1, processDocument: 1, addToStore: 1},
 			},
 		},
 		{
@@ -193,12 +205,14 @@ func TestHandleUpload(t *testing.T) {
 					ChunksCount: 3,
 					UploadedAt:  fixedTime,
 				},
+				calls: calls{processFile: 1, createDocument: 1, processDocument: 1, addToStore: 1},
 			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var got calls
 			var capturedContent string
 			var capturedMetadata map[string]string
 			var capturedChunks []types.DocumentChunk
@@ -209,20 +223,24 @@ func TestHandleUpload(t *testing.T) {
 
 			ingester := &mockDocumentIngester{
 				processDocumentFunc: func(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
+					got.processDocument++
 					capturedContent = content
 					capturedMetadata = metadata
 					return tt.mock.processDocChunks, tt.mock.processDocErr
 				},
 				addDocumentToVectorStoreFunc: func(chunks []types.DocumentChunk) error {
+					got.addToStore++
 					capturedChunks = chunks
 					return tt.mock.addToStoreErr
 				},
 			}
 			processor := &mockFileProcessor{
 				processFileFunc: func(*multipart.FileHeader) (string, error) {
+					got.processFile++
 					return tt.mock.processFileContent, tt.mock.processFileErr
 				},
 				createDocumentFunc: func(content, fileName string) types.Document {
+					got.createDocument++
 					createDocumentCalledWith.content = content
 					createDocumentCalledWith.fileName = fileName
 					return tt.mock.createDocument
@@ -237,6 +255,7 @@ func TestHandleUpload(t *testing.T) {
 			h.HandleUpload(c)
 
 			assert.Equal(t, tt.expected.status, w.Code)
+			assert.Equal(t, tt.expected.calls, got)
 
 			if tt.expected.status == http.StatusOK {
 				var resp types.UploadResponse
