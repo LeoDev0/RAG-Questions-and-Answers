@@ -26,6 +26,9 @@
 # Entry point — nothing meaningful to test
 cmd/main.go
 
+# Configs file
+internal/config/config.go
+
 # Trivial liveness endpoint
 internal/handlers/health.go
 
