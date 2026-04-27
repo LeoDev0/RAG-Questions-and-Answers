@@ -94,6 +94,30 @@ func TestSearch(t *testing.T) {
 			},
 			expected: expected{ids: []string{}},
 		},
+		{
+			name: "returns empty slice when limit is zero",
+			input: input{
+				embedding: []float64{1, 0, 0},
+				chunks: []types.DocumentChunk{
+					{ID: "a", Embedding: []float64{1, 0, 0}},
+					{ID: "b", Embedding: []float64{0, 1, 0}},
+				},
+				limit: 0,
+			},
+			expected: expected{ids: []string{}},
+		},
+		{
+			name: "returns empty slice when limit is negative",
+			input: input{
+				embedding: []float64{1, 0, 0},
+				chunks: []types.DocumentChunk{
+					{ID: "a", Embedding: []float64{1, 0, 0}},
+					{ID: "b", Embedding: []float64{0, 1, 0}},
+				},
+				limit: -1,
+			},
+			expected: expected{ids: []string{}},
+		},
 	}
 
 	for _, tt := range tests {
