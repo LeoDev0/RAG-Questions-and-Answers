@@ -2,23 +2,33 @@ package handlers
 
 import (
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"rag-backend/pkg/codes"
 
 	"github.com/gin-gonic/gin"
 
-	"rag-backend/internal/services"
 	"rag-backend/pkg/types"
 )
 
 const maxFileSize = 10 << 20 // 10mb
 
-type UploadHandler struct {
-	ragPipeline       *services.RAGPipeline
-	documentProcessor *services.DocumentProcessor
+type DocumentIngester interface {
+	ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error)
+	AddDocumentToVectorStore(chunks []types.DocumentChunk) error
 }
 
-func NewUploadHandler(ragPipeline *services.RAGPipeline, documentProcessor *services.DocumentProcessor) *UploadHandler {
+type FileProcessor interface {
+	ProcessFile(fileHeader *multipart.FileHeader) (string, error)
+	CreateDocument(content, fileName string) types.Document
+}
+
+type UploadHandler struct {
+	ragPipeline       DocumentIngester
+	documentProcessor FileProcessor
+}
+
+func NewUploadHandler(ragPipeline DocumentIngester, documentProcessor FileProcessor) *UploadHandler {
 	return &UploadHandler{
 		ragPipeline:       ragPipeline,
 		documentProcessor: documentProcessor,
