@@ -151,6 +151,17 @@ func TestHandleQueryStream_SuccessPath(t *testing.T) {
 				tokens:     "partial",
 			},
 		},
+		{
+			name: "channel closed without done event ends stream",
+			send: []services.StreamEvent{
+				{Sources: []types.DocumentChunk{}, Confidence: 0.5},
+				{Token: "hi"},
+			},
+			expected: expected{
+				frameTypes: []string{"sources", "token"},
+				tokens:     "hi",
+			},
+		},
 	}
 
 	for _, tt := range tests {
