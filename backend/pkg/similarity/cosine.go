@@ -27,7 +27,7 @@ func Search(embedding []float64, chunks []types.DocumentChunk, limit int) ([]typ
 	})
 
 	// Return top k results
-	k := min(limit, len(scored))
+	k := max(0, min(limit, len(scored)))
 	return scored[:k], nil
 }
 
