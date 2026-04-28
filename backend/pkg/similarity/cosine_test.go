@@ -181,6 +181,9 @@ func TestCosineSimilarity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := cosineSimilarity(tt.input.a, tt.input.b)
 
+			// Asserting the computed cosine similarity equals the expected value within a tiny tolerance (1e-9).
+			// It's a floating-point comparison that tolerates tiny rounding differences.
+			// InDelta function is used to verify that two floating-point numbers are "close enough" to each other.
 			assert.InDelta(t, tt.expected, result, 1e-9)
 		})
 	}
