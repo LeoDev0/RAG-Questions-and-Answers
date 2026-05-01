@@ -8,14 +8,14 @@ import (
 )
 
 type mockQueryService struct {
-	queryFunc       func(question string) (*types.RAGResponse, error)
-	queryStreamFunc func(ctx context.Context, question string) (<-chan services.StreamEvent, error)
+	queryFunc       func(question string, history []types.Message) (*types.RAGResponse, error)
+	queryStreamFunc func(ctx context.Context, question string, history []types.Message) (<-chan services.StreamEvent, error)
 }
 
-func (m *mockQueryService) Query(question string) (*types.RAGResponse, error) {
-	return m.queryFunc(question)
+func (m *mockQueryService) Query(question string, history []types.Message) (*types.RAGResponse, error) {
+	return m.queryFunc(question, history)
 }
 
-func (m *mockQueryService) QueryStream(ctx context.Context, question string) (<-chan services.StreamEvent, error) {
-	return m.queryStreamFunc(ctx, question)
+func (m *mockQueryService) QueryStream(ctx context.Context, question string, history []types.Message) (<-chan services.StreamEvent, error) {
+	return m.queryStreamFunc(ctx, question, history)
 }

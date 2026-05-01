@@ -404,18 +404,20 @@ func TestGenerateResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var capturedPrompt string
+			var capturedSystem string
+			var capturedQuestion string
 			cc := &mockChatCompleter{
 				newFunc: func(_ context.Context, body openai.ChatCompletionNewParams, _ ...option.RequestOption) (*openai.ChatCompletion, error) {
-					if len(body.Messages) > 0 {
-						capturedPrompt = body.Messages[0].OfUser.Content.OfString.Value
+					if len(body.Messages) >= 2 {
+						capturedSystem = body.Messages[0].OfSystem.Content.OfString.Value
+						capturedQuestion = body.Messages[len(body.Messages)-1].OfUser.Content.OfString.Value
 					}
 					return tt.mock.response, tt.mock.err
 				},
 			}
 			pipeline := newTestPipeline(nil, cc, &vectorstore.MockVectorStore{})
 
-			result, err := pipeline.generateResponse(tt.contextInfo, tt.question)
+			result, err := pipeline.generateResponse(tt.contextInfo, nil, tt.question)
 
 			if tt.expected.err != "" {
 				assert.Error(t, err)
@@ -427,9 +429,9 @@ func TestGenerateResponse(t *testing.T) {
 			}
 
 			if tt.name == "prompt contains context and question" {
-				assert.Contains(t, capturedPrompt, "Context information:")
-				assert.Contains(t, capturedPrompt, tt.contextInfo)
-				assert.Contains(t, capturedPrompt, "Question: "+tt.question)
+				assert.Contains(t, capturedSystem, "Context information:")
+				assert.Contains(t, capturedSystem, tt.contextInfo)
+				assert.Equal(t, tt.question, capturedQuestion)
 			}
 		})
 	}
@@ -738,7 +740,7 @@ func TestQuery(t *testing.T) {
 			cc := &mockChatCompleter{
 				newFunc: func(_ context.Context, body openai.ChatCompletionNewParams, _ ...option.RequestOption) (*openai.ChatCompletion, error) {
 					if len(body.Messages) > 0 {
-						capturedContext = body.Messages[0].OfUser.Content.OfString.Value
+						capturedContext = body.Messages[0].OfSystem.Content.OfString.Value
 					}
 					return tt.mock.chat.response, tt.mock.chat.err
 				},
@@ -751,7 +753,7 @@ func TestQuery(t *testing.T) {
 			}
 
 			pipeline := newTestPipeline(ec, cc, vs)
-			result, err := pipeline.Query(tt.question)
+			result, err := pipeline.Query(tt.question, nil)
 
 			if tt.expected.err != "" {
 				assert.Error(t, err)
@@ -783,7 +785,7 @@ func TestQuery_ContextBuiltFromMultipleSources(t *testing.T) {
 	cc := &mockChatCompleter{
 		newFunc: func(_ context.Context, body openai.ChatCompletionNewParams, _ ...option.RequestOption) (*openai.ChatCompletion, error) {
 			if len(body.Messages) > 0 {
-				capturedPrompt = body.Messages[0].OfUser.Content.OfString.Value
+				capturedPrompt = body.Messages[0].OfSystem.Content.OfString.Value
 			}
 			return makeChatCompletion("answer"), nil
 		},
@@ -799,10 +801,270 @@ func TestQuery_ContextBuiltFromMultipleSources(t *testing.T) {
 	}
 
 	pipeline := newTestPipeline(ec, cc, vs)
-	_, err := pipeline.Query("test question")
+	_, err := pipeline.Query("test question", nil)
 
 	assert.NoError(t, err)
 	assert.Contains(t, capturedPrompt, "First chunk\n\nSecond chunk")
+}
+
+func TestTrimHistory(t *testing.T) {
+	makeHistory := func(n int) []types.Message {
+		h := make([]types.Message, n)
+		for i := range h {
+			h[i] = types.Message{Role: types.RoleUser, Content: fmt.Sprintf("m%d", i)}
+		}
+		return h
+	}
+
+	tests := []struct {
+		name     string
+		input    []types.Message
+		expected int
+	}{
+		{name: "below cap is unchanged", input: makeHistory(3), expected: 3},
+		{name: "at cap is unchanged", input: makeHistory(maxHistoryTurns), expected: maxHistoryTurns},
+		{name: "above cap is trimmed to last N", input: makeHistory(maxHistoryTurns + 5), expected: maxHistoryTurns},
+		{name: "empty stays empty", input: nil, expected: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := trimHistory(tt.input)
+			assert.Len(t, result, tt.expected)
+			if len(result) > 0 && len(tt.input) > maxHistoryTurns {
+				assert.Equal(t, tt.input[len(tt.input)-maxHistoryTurns].Content, result[0].Content)
+				assert.Equal(t, tt.input[len(tt.input)-1].Content, result[len(result)-1].Content)
+			}
+		})
+	}
+}
+
+func TestRewriteQueryForRetrieval(t *testing.T) {
+	tests := []struct {
+		name     string
+		history  []types.Message
+		question string
+		expected string
+	}{
+		{
+			name:     "empty history returns just the question",
+			history:  nil,
+			question: "what now",
+			expected: "what now",
+		},
+		{
+			name: "one prior user turn is concatenated",
+			history: []types.Message{
+				{Role: types.RoleUser, Content: "first"},
+			},
+			question: "second",
+			expected: "first second",
+		},
+		{
+			name: "assistant turns are skipped",
+			history: []types.Message{
+				{Role: types.RoleUser, Content: "u1"},
+				{Role: types.RoleAssistant, Content: "a1"},
+			},
+			question: "u2",
+			expected: "u1 u2",
+		},
+		{
+			name: "only the last retrievalRewriteWindow user turns are picked",
+			history: []types.Message{
+				{Role: types.RoleUser, Content: "old"},
+				{Role: types.RoleAssistant, Content: "a"},
+				{Role: types.RoleUser, Content: "u-2"},
+				{Role: types.RoleAssistant, Content: "a"},
+				{Role: types.RoleUser, Content: "u-1"},
+				{Role: types.RoleAssistant, Content: "a"},
+			},
+			question: "now",
+			expected: "u-2 u-1 now",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := rewriteQueryForRetrieval(tt.history, tt.question)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestChatCompletionParams_MessageOrder(t *testing.T) {
+	tests := []struct {
+		name          string
+		history       []types.Message
+		question      string
+		expectedRoles []string
+		expectedTexts []string
+	}{
+		{
+			name:          "empty history yields system then user",
+			history:       nil,
+			question:      "hello",
+			expectedRoles: []string{"system", "user"},
+			expectedTexts: []string{"system-prompt", "hello"},
+		},
+		{
+			name: "interleaved history preserved between system and final user",
+			history: []types.Message{
+				{Role: types.RoleUser, Content: "q1"},
+				{Role: types.RoleAssistant, Content: "a1"},
+				{Role: types.RoleUser, Content: "q2"},
+				{Role: types.RoleAssistant, Content: "a2"},
+			},
+			question:      "q3",
+			expectedRoles: []string{"system", "user", "assistant", "user", "assistant", "user"},
+			expectedTexts: []string{"system-prompt", "q1", "a1", "q2", "a2", "q3"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := chatCompletionParams("system-prompt", tt.history, tt.question)
+			assert.Len(t, params.Messages, len(tt.expectedRoles))
+			for i, want := range tt.expectedRoles {
+				m := params.Messages[i]
+				switch want {
+				case "system":
+					assert.NotNil(t, m.OfSystem, "expected system message at %d", i)
+					assert.Equal(t, tt.expectedTexts[i], m.OfSystem.Content.OfString.Value)
+				case "user":
+					assert.NotNil(t, m.OfUser, "expected user message at %d", i)
+					assert.Equal(t, tt.expectedTexts[i], m.OfUser.Content.OfString.Value)
+				case "assistant":
+					assert.NotNil(t, m.OfAssistant, "expected assistant message at %d", i)
+					assert.Equal(t, tt.expectedTexts[i], m.OfAssistant.Content.OfString.Value)
+				}
+			}
+		})
+	}
+}
+
+func TestQuery_HistoryThreadedToLLMAndRetrieval(t *testing.T) {
+	type expected struct {
+		messageRoles []string
+		messageTexts []string
+		embedInput   string
+	}
+
+	tests := []struct {
+		name     string
+		history  []types.Message
+		question string
+		expected expected
+	}{
+		{
+			name:     "no history sends single user message after system, embeds question only",
+			history:  nil,
+			question: "what is Go",
+			expected: expected{
+				messageRoles: []string{"system", "user"},
+				messageTexts: []string{"", "what is Go"},
+				embedInput:   "what is Go",
+			},
+		},
+		{
+			name: "short history forwarded in order, embedding includes prior user turn",
+			history: []types.Message{
+				{Role: types.RoleUser, Content: "what sections"},
+				{Role: types.RoleAssistant, Content: "Setup, Usage, Troubleshooting"},
+			},
+			question: "tell me about the second one",
+			expected: expected{
+				messageRoles: []string{"system", "user", "assistant", "user"},
+				messageTexts: []string{"", "what sections", "Setup, Usage, Troubleshooting", "tell me about the second one"},
+				embedInput:   "what sections tell me about the second one",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var capturedEmbed string
+			ec := &mockEmbeddingCreator{
+				newFunc: func(_ context.Context, body openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
+					capturedEmbed = body.Input.OfString.Value
+					return makeEmbeddingResponse([][]float64{{0.1}}), nil
+				},
+			}
+
+			var capturedMsgs []openai.ChatCompletionMessageParamUnion
+			cc := &mockChatCompleter{
+				newFunc: func(_ context.Context, body openai.ChatCompletionNewParams, _ ...option.RequestOption) (*openai.ChatCompletion, error) {
+					capturedMsgs = body.Messages
+					return makeChatCompletion("ok"), nil
+				},
+			}
+
+			vs := &vectorstore.MockVectorStore{
+				SearchFunc: func(_ []float64, _ int) ([]types.ScoredChunk, error) {
+					return []types.ScoredChunk{
+						{Chunk: types.DocumentChunk{Content: "ctx"}, Score: 0.9},
+					}, nil
+				},
+			}
+
+			pipeline := newTestPipeline(ec, cc, vs)
+			_, err := pipeline.Query(tt.question, tt.history)
+			assert.NoError(t, err)
+
+			assert.Equal(t, tt.expected.embedInput, capturedEmbed)
+			assert.Len(t, capturedMsgs, len(tt.expected.messageRoles))
+			for i, role := range tt.expected.messageRoles {
+				m := capturedMsgs[i]
+				switch role {
+				case "system":
+					assert.NotNil(t, m.OfSystem)
+				case "user":
+					assert.NotNil(t, m.OfUser)
+					assert.Equal(t, tt.expected.messageTexts[i], m.OfUser.Content.OfString.Value)
+				case "assistant":
+					assert.NotNil(t, m.OfAssistant)
+					assert.Equal(t, tt.expected.messageTexts[i], m.OfAssistant.Content.OfString.Value)
+				}
+			}
+		})
+	}
+}
+
+func TestQuery_HistoryBeyondCapIsTrimmed(t *testing.T) {
+	history := make([]types.Message, maxHistoryTurns+4)
+	for i := range history {
+		history[i] = types.Message{Role: types.RoleUser, Content: fmt.Sprintf("m%d", i)}
+	}
+
+	ec := &mockEmbeddingCreator{
+		newFunc: func(_ context.Context, _ openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
+			return makeEmbeddingResponse([][]float64{{0.1}}), nil
+		},
+	}
+
+	var capturedMsgs []openai.ChatCompletionMessageParamUnion
+	cc := &mockChatCompleter{
+		newFunc: func(_ context.Context, body openai.ChatCompletionNewParams, _ ...option.RequestOption) (*openai.ChatCompletion, error) {
+			capturedMsgs = body.Messages
+			return makeChatCompletion("ok"), nil
+		},
+	}
+
+	vs := &vectorstore.MockVectorStore{
+		SearchFunc: func(_ []float64, _ int) ([]types.ScoredChunk, error) {
+			return []types.ScoredChunk{}, nil
+		},
+	}
+
+	pipeline := newTestPipeline(ec, cc, vs)
+	_, err := pipeline.Query("now", history)
+	assert.NoError(t, err)
+
+	assert.Len(t, capturedMsgs, maxHistoryTurns+2)
+	assert.NotNil(t, capturedMsgs[0].OfSystem)
+	assert.Equal(t, "now", capturedMsgs[len(capturedMsgs)-1].OfUser.Content.OfString.Value)
+	// Oldest retained history turn is m4 (we trimmed the first 4).
+	assert.Equal(t, "m4", capturedMsgs[1].OfUser.Content.OfString.Value)
 }
 
 func TestQuery_PassesCorrectSearchLimit(t *testing.T) {
@@ -826,7 +1088,7 @@ func TestQuery_PassesCorrectSearchLimit(t *testing.T) {
 	}
 
 	pipeline := newTestPipeline(ec, cc, vs)
-	_, err := pipeline.Query("test")
+	_, err := pipeline.Query("test", nil)
 
 	assert.NoError(t, err)
 	assert.Equal(t, maxContentChunks, capturedLimit)

@@ -92,7 +92,7 @@ func TestQueryStream_PreStreamErrors(t *testing.T) {
 			}
 			pipeline := newTestPipeline(ec, &mockChatCompleter{}, vs)
 
-			events, err := pipeline.QueryStream(context.Background(), "q")
+			events, err := pipeline.QueryStream(context.Background(), "q", nil)
 
 			assert.Error(t, err)
 			assert.Contains(t, err.Error(), tt.expected.err)
@@ -186,7 +186,7 @@ func TestQueryStream_Success(t *testing.T) {
 			}
 			pipeline := newTestPipeline(ec, cc, vs)
 
-			events, err := pipeline.QueryStream(context.Background(), "q")
+			events, err := pipeline.QueryStream(context.Background(), "q", nil)
 			assert.NoError(t, err)
 			assert.NotNil(t, events)
 
@@ -211,6 +211,47 @@ func TestQueryStream_Success(t *testing.T) {
 	}
 }
 
+func TestQueryStream_HistoryThreaded(t *testing.T) {
+	history := []types.Message{
+		{Role: types.RoleUser, Content: "u1"},
+		{Role: types.RoleAssistant, Content: "a1"},
+	}
+
+	var capturedEmbed string
+	ec := &mockEmbeddingCreator{
+		newFunc: func(_ context.Context, body openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
+			capturedEmbed = body.Input.OfString.Value
+			return makeEmbeddingResponse([][]float64{{0.1}}), nil
+		},
+	}
+
+	var capturedMsgs []openai.ChatCompletionMessageParamUnion
+	stream := &mockChatStream{chunks: []openai.ChatCompletionChunk{makeChatCompletionChunk("ok")}}
+	cc := &mockChatCompleter{
+		newStreamingFunc: func(_ context.Context, body openai.ChatCompletionNewParams, _ ...option.RequestOption) ChatStream {
+			capturedMsgs = body.Messages
+			return stream
+		},
+	}
+	vs := &vectorstore.MockVectorStore{
+		SearchFunc: func(_ []float64, _ int) ([]types.ScoredChunk, error) {
+			return []types.ScoredChunk{}, nil
+		},
+	}
+
+	pipeline := newTestPipeline(ec, cc, vs)
+	events, err := pipeline.QueryStream(context.Background(), "u2", history)
+	assert.NoError(t, err)
+	drainEvents(t, events)
+
+	assert.Equal(t, "u1 u2", capturedEmbed)
+	assert.Len(t, capturedMsgs, 4)
+	assert.NotNil(t, capturedMsgs[0].OfSystem)
+	assert.Equal(t, "u1", capturedMsgs[1].OfUser.Content.OfString.Value)
+	assert.Equal(t, "a1", capturedMsgs[2].OfAssistant.Content.OfString.Value)
+	assert.Equal(t, "u2", capturedMsgs[3].OfUser.Content.OfString.Value)
+}
+
 func TestQueryStream_UpstreamError(t *testing.T) {
 	ec := &mockEmbeddingCreator{
 		newFunc: func(_ context.Context, _ openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
@@ -233,7 +274,7 @@ func TestQueryStream_UpstreamError(t *testing.T) {
 	}
 	pipeline := newTestPipeline(ec, cc, vs)
 
-	events, err := pipeline.QueryStream(context.Background(), "q")
+	events, err := pipeline.QueryStream(context.Background(), "q", nil)
 	assert.NoError(t, err)
 
 	received := drainEvents(t, events)
@@ -270,7 +311,7 @@ func TestQueryStream_ContextCancellation(t *testing.T) {
 	pipeline := newTestPipeline(ec, cc, vs)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	events, err := pipeline.QueryStream(ctx, "q")
+	events, err := pipeline.QueryStream(ctx, "q", nil)
 	assert.NoError(t, err)
 
 	// Consume the initial sources event, then cancel and stop reading.
