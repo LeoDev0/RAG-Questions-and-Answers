@@ -16,12 +16,14 @@ import (
 )
 
 const (
-	defaultConfidence = 0.8
-	chunkSize         = 1000
-	chunkOverlap      = 200
-	maxContentChunks  = 4
-	maxBatchSize      = 40
-	maxConcurrency    = 5
+	defaultConfidence      = 0.8
+	chunkSize              = 1000
+	chunkOverlap           = 200
+	maxContentChunks       = 4
+	maxBatchSize           = 40
+	maxConcurrency         = 5
+	maxHistoryTurns        = 10
+	retrievalRewriteWindow = 2
 )
 
 type RAGPipeline struct {
@@ -94,14 +96,17 @@ type StreamEvent struct {
 	Done       bool
 }
 
-func (rp *RAGPipeline) QueryStream(ctx context.Context, question string) (<-chan StreamEvent, error) {
-	relevantDocs, contextInfo, err := rp.retrieveContext(question)
+func (rp *RAGPipeline) QueryStream(ctx context.Context, question string, history []types.Message) (<-chan StreamEvent, error) {
+	history = trimHistory(history)
+	retrievalQuery := rewriteQueryForRetrieval(history, question)
+
+	relevantDocs, contextInfo, err := rp.retrieveContext(retrievalQuery)
 	if err != nil {
 		return nil, err
 	}
 
 	events := make(chan StreamEvent)
-	go rp.streamCompletion(ctx, relevantDocs, contextInfo, question, events)
+	go rp.streamCompletion(ctx, relevantDocs, contextInfo, history, question, events)
 	return events, nil
 }
 
@@ -129,7 +134,7 @@ func (rp *RAGPipeline) retrieveContext(question string) ([]types.DocumentChunk, 
 	return relevantDocs, contextBuilder.String(), nil
 }
 
-func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.DocumentChunk, contextInfo, question string, events chan<- StreamEvent) {
+func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.DocumentChunk, contextInfo string, history []types.Message, question string, events chan<- StreamEvent) {
 	defer close(events)
 
 	send := func(ev StreamEvent) bool {
@@ -145,7 +150,7 @@ func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.Doc
 		return
 	}
 
-	stream := rp.chatCompleter.NewStreamingIter(ctx, chatCompletionParams(buildPrompt(contextInfo, question)))
+	stream := rp.chatCompleter.NewStreamingIter(ctx, chatCompletionParams(buildSystemPrompt(contextInfo), history, question))
 	defer stream.Close()
 
 	for stream.Next() {
@@ -170,13 +175,16 @@ func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.Doc
 	send(StreamEvent{Done: true})
 }
 
-func (rp *RAGPipeline) Query(question string) (*types.RAGResponse, error) {
-	relevantDocs, contextInfo, err := rp.retrieveContext(question)
+func (rp *RAGPipeline) Query(question string, history []types.Message) (*types.RAGResponse, error) {
+	history = trimHistory(history)
+	retrievalQuery := rewriteQueryForRetrieval(history, question)
+
+	relevantDocs, contextInfo, err := rp.retrieveContext(retrievalQuery)
 	if err != nil {
 		return nil, err
 	}
 
-	answer, err := rp.generateResponse(contextInfo, question)
+	answer, err := rp.generateResponse(contextInfo, history, question)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate response: %w", err)
 	}
@@ -305,27 +313,58 @@ func (rp *RAGPipeline) generateEmbeddingParallel(texts []string) ([][]float64, e
 	return allEmbeddings, nil
 }
 
-func buildPrompt(contextInfo, question string) string {
-	return fmt.Sprintf(`Context information:
+func buildSystemPrompt(contextInfo string) string {
+	return fmt.Sprintf(`You are answering questions about a provided document.
+
+Context information:
 %s
 
-Question: %s
-
-Please answer the question based on the context provided. If the answer is not in the context, say "I don't have enough information to answer this question."`, contextInfo, question)
+Answer using only the context above. If the answer is not in the context, say "I don't have enough information to answer this question."`, contextInfo)
 }
 
-func chatCompletionParams(prompt string) openai.ChatCompletionNewParams {
+func chatCompletionParams(systemPrompt string, history []types.Message, question string) openai.ChatCompletionNewParams {
+	msgs := make([]openai.ChatCompletionMessageParamUnion, 0, len(history)+2)
+	msgs = append(msgs, openai.SystemMessage(systemPrompt))
+	for _, m := range history {
+		if m.Role == types.RoleAssistant {
+			msgs = append(msgs, openai.AssistantMessage(m.Content))
+		} else {
+			msgs = append(msgs, openai.UserMessage(m.Content))
+		}
+	}
+	msgs = append(msgs, openai.UserMessage(question))
 	return openai.ChatCompletionNewParams{
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(prompt),
-		},
+		Messages:    msgs,
 		Model:       "deepseek-chat",
 		Temperature: openai.Float(0.0), // Deterministic: same question = same answer.
 	}
 }
 
-func (rp *RAGPipeline) generateResponse(contextInfo, question string) (string, error) {
-	completion, err := rp.chatCompleter.New(context.TODO(), chatCompletionParams(buildPrompt(contextInfo, question)))
+func trimHistory(history []types.Message) []types.Message {
+	if len(history) <= maxHistoryTurns {
+		return history
+	}
+	return history[len(history)-maxHistoryTurns:]
+}
+
+// Concatenates the last retrievalRewriteWindow user turns with the current
+// question so the embedding has more anchor for follow-up disambiguation.
+// Centralized so the rewrite can later be swapped to an LLM-based one.
+func rewriteQueryForRetrieval(history []types.Message, question string) string {
+	var parts []string
+	userTurns := 0
+	for i := len(history) - 1; i >= 0 && userTurns < retrievalRewriteWindow; i-- {
+		if history[i].Role == types.RoleUser {
+			parts = append([]string{history[i].Content}, parts...)
+			userTurns++
+		}
+	}
+	parts = append(parts, question)
+	return strings.Join(parts, " ")
+}
+
+func (rp *RAGPipeline) generateResponse(contextInfo string, history []types.Message, question string) (string, error) {
+	completion, err := rp.chatCompleter.New(context.TODO(), chatCompletionParams(buildSystemPrompt(contextInfo), history, question))
 	if err != nil {
 		return "", fmt.Errorf("failed to generate response: %w", err)
 	}
