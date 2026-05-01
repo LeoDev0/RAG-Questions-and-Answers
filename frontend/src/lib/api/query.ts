@@ -1,4 +1,4 @@
-import { DocumentChunk } from '@/types';
+import { ApiMessage, DocumentChunk } from '@/types';
 import { sendQueryStream } from './queryStream';
 import { sendQuerySingle } from './queryOnce';
 
@@ -14,11 +14,12 @@ export interface QueryCallbacks {
 export async function sendQuery(
   mode: QueryMode,
   question: string,
+  history: ApiMessage[],
   backendUrl: string,
   callbacks: QueryCallbacks,
 ): Promise<void> {
   if (mode === 'stream') {
-    return sendQueryStream(question, backendUrl, callbacks);
+    return sendQueryStream(question, history, backendUrl, callbacks);
   }
-  return sendQuerySingle(question, backendUrl, callbacks);
+  return sendQuerySingle(question, history, backendUrl, callbacks);
 }

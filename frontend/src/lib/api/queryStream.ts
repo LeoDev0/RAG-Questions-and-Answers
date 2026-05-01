@@ -1,8 +1,9 @@
-import { ErrorResponse, StreamEvent } from '@/types';
+import { ApiMessage, ErrorResponse, StreamEvent } from '@/types';
 import { QueryCallbacks } from './query';
 
 export async function sendQueryStream(
   question: string,
+  history: ApiMessage[],
   backendUrl: string,
   callbacks: QueryCallbacks,
 ): Promise<void> {
@@ -10,7 +11,7 @@ export async function sendQueryStream(
     const response = await fetch(`${backendUrl}/api/query/stream`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, history }),
     });
 
     if (!response.ok) {

@@ -12,8 +12,8 @@ import (
 )
 
 type QueryService interface {
-	Query(question string) (*types.RAGResponse, error)
-	QueryStream(ctx context.Context, question string) (<-chan services.StreamEvent, error)
+	Query(question string, history []types.Message) (*types.RAGResponse, error)
+	QueryStream(ctx context.Context, question string, history []types.Message) (<-chan services.StreamEvent, error)
 }
 
 type QueryHandler struct {
@@ -45,7 +45,7 @@ func (h *QueryHandler) HandleQuery(c *gin.Context) {
 		return
 	}
 
-	response, err := h.ragPipeline.Query(request.Question)
+	response, err := h.ragPipeline.Query(request.Question, request.History)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
 			Error:   "Failed to process query",

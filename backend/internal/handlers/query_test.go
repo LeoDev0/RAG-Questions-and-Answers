@@ -29,12 +29,13 @@ func TestHandleQuery(t *testing.T) {
 		err      error
 	}
 	type expected struct {
-		status       int
-		code         string
-		detailSubstr string
-		answer       string
-		sources      []types.DocumentChunk
-		confidence   float64
+		status          int
+		code            string
+		detailSubstr    string
+		answer          string
+		sources         []types.DocumentChunk
+		confidence      float64
+		capturedHistory []types.Message
 	}
 
 	canned := &types.RAGResponse{
@@ -62,6 +63,16 @@ func TestHandleQuery(t *testing.T) {
 			expected: expected{status: http.StatusBadRequest, code: codes.ErrInvalidRequest},
 		},
 		{
+			name:     "rejects history entry with invalid role",
+			body:     `{"question":"hi","history":[{"role":"system","content":"x"}]}`,
+			expected: expected{status: http.StatusBadRequest, code: codes.ErrInvalidRequest},
+		},
+		{
+			name:     "rejects history entry with empty content",
+			body:     `{"question":"hi","history":[{"role":"user","content":""}]}`,
+			expected: expected{status: http.StatusBadRequest, code: codes.ErrInvalidRequest},
+		},
+		{
 			name: "returns 500 when pipeline fails",
 			body: `{"question":"hi"}`,
 			mock: mock{err: errors.New("vector store down")},
@@ -82,12 +93,29 @@ func TestHandleQuery(t *testing.T) {
 				confidence: canned.Confidence,
 			},
 		},
+		{
+			name: "forwards history to pipeline",
+			body: `{"question":"q2","history":[{"role":"user","content":"q1"},{"role":"assistant","content":"a1"}]}`,
+			mock: mock{response: canned},
+			expected: expected{
+				status:     http.StatusOK,
+				answer:     canned.Answer,
+				sources:    canned.Sources,
+				confidence: canned.Confidence,
+				capturedHistory: []types.Message{
+					{Role: types.RoleUser, Content: "q1"},
+					{Role: types.RoleAssistant, Content: "a1"},
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var capturedHistory []types.Message
 			h := NewQueryHandler(&mockQueryService{
-				queryFunc: func(string) (*types.RAGResponse, error) {
+				queryFunc: func(_ string, history []types.Message) (*types.RAGResponse, error) {
+					capturedHistory = history
 					return tt.mock.response, tt.mock.err
 				},
 			})
@@ -107,6 +135,9 @@ func TestHandleQuery(t *testing.T) {
 				assert.Equal(t, tt.expected.answer, resp.Answer)
 				assert.Equal(t, tt.expected.sources, resp.Sources)
 				assert.Equal(t, tt.expected.confidence, resp.Confidence)
+				if tt.expected.capturedHistory != nil {
+					assert.Equal(t, tt.expected.capturedHistory, capturedHistory)
+				}
 				return
 			}
 

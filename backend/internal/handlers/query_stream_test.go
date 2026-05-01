@@ -66,6 +66,11 @@ func TestHandleQueryStream_ValidationErrors(t *testing.T) {
 			body:     `{"question": ""}`,
 			expected: expected{status: http.StatusBadRequest, code: codes.ErrInvalidRequest},
 		},
+		{
+			name:     "rejects history entry with invalid role",
+			body:     `{"question":"hi","history":[{"role":"system","content":"x"}]}`,
+			expected: expected{status: http.StatusBadRequest, code: codes.ErrInvalidRequest},
+		},
 	}
 
 	for _, tt := range tests {
@@ -92,7 +97,7 @@ func TestHandleQueryStream_PreStreamError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	h := NewQueryHandler(&mockQueryService{
-		queryStreamFunc: func(_ context.Context, _ string) (<-chan services.StreamEvent, error) {
+		queryStreamFunc: func(_ context.Context, _ string, _ []types.Message) (<-chan services.StreamEvent, error) {
 			return nil, errors.New("vector store exploded")
 		},
 	})
@@ -173,7 +178,7 @@ func TestHandleQueryStream_SuccessPath(t *testing.T) {
 			close(ch)
 
 			h := NewQueryHandler(&mockQueryService{
-				queryStreamFunc: func(_ context.Context, _ string) (<-chan services.StreamEvent, error) {
+				queryStreamFunc: func(_ context.Context, _ string, _ []types.Message) (<-chan services.StreamEvent, error) {
 					return ch, nil
 				},
 			})
