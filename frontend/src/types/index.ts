@@ -7,12 +7,19 @@ export interface DocumentChunk {
   };
 }
 
+export type ChatRole = 'user' | 'assistant';
+
 export interface ChatMessage {
   id: string;
-  role: 'user' | 'assistant';
+  role: ChatRole;
   content: string;
   timestamp: Date;
   sources?: DocumentChunk[];
+}
+
+export interface ApiMessage {
+  role: ChatRole;
+  content: string;
 }
 
 export interface RAGResponse {
