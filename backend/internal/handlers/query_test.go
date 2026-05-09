@@ -29,13 +29,13 @@ func TestHandleQuery(t *testing.T) {
 		err      error
 	}
 	type expected struct {
-		status          int
-		code            string
-		detailSubstr    string
-		answer          string
-		sources         []types.DocumentChunk
-		confidence      float64
-		capturedHistory []types.Message
+		status       int
+		code         string
+		detailSubstr string
+		answer       string
+		sources      []types.DocumentChunk
+		confidence   float64
+		chatHistory  []types.Message
 	}
 
 	canned := &types.RAGResponse{
@@ -102,7 +102,7 @@ func TestHandleQuery(t *testing.T) {
 				answer:     canned.Answer,
 				sources:    canned.Sources,
 				confidence: canned.Confidence,
-				capturedHistory: []types.Message{
+				chatHistory: []types.Message{
 					{Role: types.RoleUser, Content: "q1"},
 					{Role: types.RoleAssistant, Content: "a1"},
 				},
@@ -112,10 +112,10 @@ func TestHandleQuery(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var capturedHistory []types.Message
+			var chatHistory []types.Message
 			h := NewQueryHandler(&mockQueryService{
 				queryFunc: func(_ string, history []types.Message) (*types.RAGResponse, error) {
-					capturedHistory = history
+					chatHistory = history
 					return tt.mock.response, tt.mock.err
 				},
 			})
@@ -135,8 +135,8 @@ func TestHandleQuery(t *testing.T) {
 				assert.Equal(t, tt.expected.answer, resp.Answer)
 				assert.Equal(t, tt.expected.sources, resp.Sources)
 				assert.Equal(t, tt.expected.confidence, resp.Confidence)
-				if tt.expected.capturedHistory != nil {
-					assert.Equal(t, tt.expected.capturedHistory, capturedHistory)
+				if tt.expected.chatHistory != nil {
+					assert.Equal(t, tt.expected.chatHistory, chatHistory)
 				}
 				return
 			}
