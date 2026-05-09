@@ -16,12 +16,18 @@ import (
 )
 
 const (
-	defaultConfidence      = 0.8
-	chunkSize              = 1000
-	chunkOverlap           = 200
-	maxContentChunks       = 4
-	maxBatchSize           = 40
-	maxConcurrency         = 5
+	defaultConfidence = 0.8
+	chunkSize         = 1000
+	chunkOverlap      = 200
+	maxContentChunks  = 4
+	maxBatchSize      = 40
+	maxConcurrency    = 5
+	// maxHistoryTurns bounds how many prior turns are sent to the LLM as
+	// conversational context. retrievalRewriteWindow bounds how many recent
+	// user turns are folded into the embedding query for vector search.
+	// The retrieval window is much smaller because stuffing many turns into
+	// a single embedding dilutes the topic signal; only the last turn or two
+	// are needed to resolve follow-up references like "its" or "that".
 	maxHistoryTurns        = 10
 	retrievalRewriteWindow = 2
 )
