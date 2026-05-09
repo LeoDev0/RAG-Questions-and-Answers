@@ -329,7 +329,8 @@ Answer using only the context above. If the answer is not in the context, say "I
 }
 
 func chatCompletionParams(systemPrompt string, history []types.Message, question string) openai.ChatCompletionNewParams {
-	msgs := make([]openai.ChatCompletionMessageParamUnion, 0, len(history)+2)
+	const nonHistoryMessages = 2 // system prompt + current user question
+	msgs := make([]openai.ChatCompletionMessageParamUnion, 0, len(history)+nonHistoryMessages)
 	msgs = append(msgs, openai.SystemMessage(systemPrompt))
 	for _, m := range history {
 		if m.Role == types.RoleAssistant {
