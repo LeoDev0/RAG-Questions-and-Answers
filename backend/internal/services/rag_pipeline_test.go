@@ -821,10 +821,26 @@ func TestTrimHistory(t *testing.T) {
 		input    []types.Message
 		expected int
 	}{
-		{name: "below cap is unchanged", input: makeHistory(3), expected: 3},
-		{name: "at cap is unchanged", input: makeHistory(maxHistoryTurns), expected: maxHistoryTurns},
-		{name: "above cap is trimmed to last N", input: makeHistory(maxHistoryTurns + 5), expected: maxHistoryTurns},
-		{name: "empty stays empty", input: nil, expected: 0},
+		{
+			name:     "below cap is unchanged",
+			input:    makeHistory(3),
+			expected: 3,
+		},
+		{
+			name:     "at cap is unchanged",
+			input:    makeHistory(maxHistoryTurns),
+			expected: maxHistoryTurns,
+		},
+		{
+			name:     "above cap is trimmed to last N",
+			input:    makeHistory(maxHistoryTurns + 5),
+			expected: maxHistoryTurns,
+		},
+		{
+			name:     "empty stays empty",
+			input:    nil,
+			expected: 0,
+		},
 	}
 
 	for _, tt := range tests {
