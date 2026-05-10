@@ -914,16 +914,16 @@ func TestChatCompletionParams_MessageOrder(t *testing.T) {
 		texts []string
 	}
 	tests := []struct {
-		name     string
-		history  []types.Message
-		question string
-		expected expected
+		name            string
+		history         []types.Message
+		question        string
+		expectedMessage expected
 	}{
 		{
 			name:     "empty history yields system then user",
 			history:  nil,
 			question: "hello",
-			expected: expected{
+			expectedMessage: expected{
 				roles: []string{"system", "user"},
 				texts: []string{"system-prompt", "hello"},
 			},
@@ -937,7 +937,7 @@ func TestChatCompletionParams_MessageOrder(t *testing.T) {
 				{Role: types.RoleAssistant, Content: "a2"},
 			},
 			question: "q3",
-			expected: expected{
+			expectedMessage: expected{
 				roles: []string{"system", "user", "assistant", "user", "assistant", "user"},
 				texts: []string{"system-prompt", "q1", "a1", "q2", "a2", "q3"},
 			},
@@ -947,19 +947,19 @@ func TestChatCompletionParams_MessageOrder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := chatCompletionParams("system-prompt", tt.history, tt.question)
-			assert.Len(t, params.Messages, len(tt.expected.roles))
-			for i, want := range tt.expected.roles {
+			assert.Len(t, params.Messages, len(tt.expectedMessage.roles))
+			for i, want := range tt.expectedMessage.roles {
 				m := params.Messages[i]
 				switch want {
 				case "system":
 					assert.NotNil(t, m.OfSystem, "expected system message at %d", i)
-					assert.Equal(t, tt.expected.texts[i], m.OfSystem.Content.OfString.Value)
+					assert.Equal(t, tt.expectedMessage.texts[i], m.OfSystem.Content.OfString.Value)
 				case "user":
 					assert.NotNil(t, m.OfUser, "expected user message at %d", i)
-					assert.Equal(t, tt.expected.texts[i], m.OfUser.Content.OfString.Value)
+					assert.Equal(t, tt.expectedMessage.texts[i], m.OfUser.Content.OfString.Value)
 				case "assistant":
 					assert.NotNil(t, m.OfAssistant, "expected assistant message at %d", i)
-					assert.Equal(t, tt.expected.texts[i], m.OfAssistant.Content.OfString.Value)
+					assert.Equal(t, tt.expectedMessage.texts[i], m.OfAssistant.Content.OfString.Value)
 				}
 			}
 		})
