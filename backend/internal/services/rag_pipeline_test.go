@@ -985,7 +985,7 @@ func TestQuery_HistoryThreadedToLLMAndRetrieval(t *testing.T) {
 			question: "what is Go",
 			expected: expected{
 				messageRoles: []string{"system", "user"},
-				messageTexts: []string{"", "what is Go"},
+				messageTexts: []string{"ctx", "what is Go"},
 				embedInput:   "what is Go",
 			},
 		},
@@ -998,7 +998,7 @@ func TestQuery_HistoryThreadedToLLMAndRetrieval(t *testing.T) {
 			question: "tell me about the second one",
 			expected: expected{
 				messageRoles: []string{"system", "user", "assistant", "user"},
-				messageTexts: []string{"", "what sections", "Setup, Usage, Troubleshooting", "tell me about the second one"},
+				messageTexts: []string{"ctx", "what sections", "Setup, Usage, Troubleshooting", "tell me about the second one"},
 				embedInput:   "what sections tell me about the second one",
 			},
 		},
@@ -1041,6 +1041,7 @@ func TestQuery_HistoryThreadedToLLMAndRetrieval(t *testing.T) {
 				switch role {
 				case "system":
 					assert.NotNil(t, m.OfSystem)
+					assert.Contains(t, m.OfSystem.Content.OfString.Value, tt.expected.messageTexts[i])
 				case "user":
 					assert.NotNil(t, m.OfUser)
 					assert.Equal(t, tt.expected.messageTexts[i], m.OfUser.Content.OfString.Value)
