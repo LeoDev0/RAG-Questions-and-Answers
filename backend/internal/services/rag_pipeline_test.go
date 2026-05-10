@@ -909,19 +909,24 @@ func TestRewriteQueryForRetrieval(t *testing.T) {
 }
 
 func TestChatCompletionParams_MessageOrder(t *testing.T) {
+	type expected struct {
+		roles []string
+		texts []string
+	}
 	tests := []struct {
-		name          string
-		history       []types.Message
-		question      string
-		expectedRoles []string
-		expectedTexts []string
+		name     string
+		history  []types.Message
+		question string
+		expected expected
 	}{
 		{
-			name:          "empty history yields system then user",
-			history:       nil,
-			question:      "hello",
-			expectedRoles: []string{"system", "user"},
-			expectedTexts: []string{"system-prompt", "hello"},
+			name:     "empty history yields system then user",
+			history:  nil,
+			question: "hello",
+			expected: expected{
+				roles: []string{"system", "user"},
+				texts: []string{"system-prompt", "hello"},
+			},
 		},
 		{
 			name: "interleaved history preserved between system and final user",
@@ -931,28 +936,30 @@ func TestChatCompletionParams_MessageOrder(t *testing.T) {
 				{Role: types.RoleUser, Content: "q2"},
 				{Role: types.RoleAssistant, Content: "a2"},
 			},
-			question:      "q3",
-			expectedRoles: []string{"system", "user", "assistant", "user", "assistant", "user"},
-			expectedTexts: []string{"system-prompt", "q1", "a1", "q2", "a2", "q3"},
+			question: "q3",
+			expected: expected{
+				roles: []string{"system", "user", "assistant", "user", "assistant", "user"},
+				texts: []string{"system-prompt", "q1", "a1", "q2", "a2", "q3"},
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			params := chatCompletionParams("system-prompt", tt.history, tt.question)
-			assert.Len(t, params.Messages, len(tt.expectedRoles))
-			for i, want := range tt.expectedRoles {
+			assert.Len(t, params.Messages, len(tt.expected.roles))
+			for i, want := range tt.expected.roles {
 				m := params.Messages[i]
 				switch want {
 				case "system":
 					assert.NotNil(t, m.OfSystem, "expected system message at %d", i)
-					assert.Equal(t, tt.expectedTexts[i], m.OfSystem.Content.OfString.Value)
+					assert.Equal(t, tt.expected.texts[i], m.OfSystem.Content.OfString.Value)
 				case "user":
 					assert.NotNil(t, m.OfUser, "expected user message at %d", i)
-					assert.Equal(t, tt.expectedTexts[i], m.OfUser.Content.OfString.Value)
+					assert.Equal(t, tt.expected.texts[i], m.OfUser.Content.OfString.Value)
 				case "assistant":
 					assert.NotNil(t, m.OfAssistant, "expected assistant message at %d", i)
-					assert.Equal(t, tt.expectedTexts[i], m.OfAssistant.Content.OfString.Value)
+					assert.Equal(t, tt.expected.texts[i], m.OfAssistant.Content.OfString.Value)
 				}
 			}
 		})
