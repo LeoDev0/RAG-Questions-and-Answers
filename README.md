@@ -7,6 +7,7 @@ Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can
 - Upload PDF and text documents (max 10MB)
 - Ask natural language questions about uploaded content
 - Real-time Q&A with source citations
+- Multi-turn conversations: follow-up questions use prior chat history for both LLM context and retrieval disambiguation
 - Streaming responses (Server-Sent Events) with a UI toggle to fall back to single-shot replies
 - Vector-based document similarity search
 - DeepSeek LLM integration for responses
@@ -124,8 +125,8 @@ The frontend will run on `http://localhost:3000`
 1. **Document Upload**: Files are processed and chunked into 1000-character segments with 200-character overlap
 2. **Embedding**: Text chunks are converted to vectors using OpenAI embeddings
 3. **Storage**: Vectors stored in memory (ephemeral - resets on restart)
-4. **Query**: User questions trigger similarity search to find relevant chunks
-5. **Generation**: DeepSeek LLM generates responses based on retrieved context
+4. **Query**: User questions trigger similarity search to find relevant chunks. Recent user turns from the conversation history are folded into the embedding query to disambiguate follow-up references like "it" or "that".
+5. **Generation**: DeepSeek LLM generates responses based on retrieved context and prior chat history
 
 ### Data Flow
 ```
