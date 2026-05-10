@@ -1,8 +1,9 @@
-import { ErrorResponse, RAGResponse } from '@/types';
+import { ApiMessage, ErrorResponse, RAGResponse } from '@/types';
 import { QueryCallbacks } from './query';
 
 export async function sendQuerySingle(
   question: string,
+  history: ApiMessage[],
   backendUrl: string,
   callbacks: QueryCallbacks,
 ): Promise<void> {
@@ -10,7 +11,7 @@ export async function sendQuerySingle(
     const response = await fetch(`${backendUrl}/api/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, history }),
     });
 
     if (!response.ok) {

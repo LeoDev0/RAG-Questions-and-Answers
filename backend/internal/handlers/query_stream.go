@@ -48,7 +48,7 @@ func (h *QueryHandler) HandleQueryStream(c *gin.Context) {
 		return
 	}
 
-	events, err := h.ragPipeline.QueryStream(c.Request.Context(), request.Question)
+	events, err := h.ragPipeline.QueryStream(c.Request.Context(), request.Question, request.History)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
 			Error:   "Failed to start stream",

@@ -111,6 +111,7 @@ This project follows a **decoupled architecture** with separate backend and fron
   - **Embeddings**: OpenAI embeddings for vector similarity search
   - **Vector Store**: Interface-based design with in-memory implementation
   - **Text Splitting**: 1000 character chunks with 200 character overlap
+  - **Conversation History**: Optional `history` is trimmed to the last `maxHistoryTurns` turns before being passed as prior chat messages to the LLM. A separate, smaller `retrievalRewriteWindow` folds only the most recent user turns into the embedding query — keeping retrieval focused on the current topic while still resolving follow-up references like "it" or "that".
 
 - **Vector Store Architecture** (`backend/internal/vectorstore/`)
   - **Interface**: `VectorStore` interface for pluggable implementations
@@ -122,9 +123,11 @@ This project follows a **decoupled architecture** with separate backend and fron
     - Success: HTTP 200 with `UploadResponse`
     - Error: HTTP 400/500 with `ErrorResponse`
   - `POST /api/query` - Performs RAG queries against uploaded documents (single response)
+    - Request body: `QueryRequest` with required `question` and optional `history` (array of `{role: "user"|"assistant", content: string}`)
     - Success: HTTP 200 with `QueryResponse`  
     - Error: HTTP 400/500 with `ErrorResponse`
   - `POST /api/query/stream` - Same as `/api/query` but streams the answer via Server-Sent Events
+    - Request body: same `QueryRequest` shape as `/api/query` (including optional `history`)
     - Success: HTTP 200 with `text/event-stream`; emits `sources`, `token`, `done`, and `error` events (each as `data: {...}\n\n`)
     - Error: HTTP 400/500 with `ErrorResponse` (before the stream begins) or an inline `error` SSE event
   - `GET /health` - Health check endpoint
@@ -153,7 +156,7 @@ This project follows a **decoupled architecture** with separate backend and fron
 
 ### Data Flow
 1. **Document Upload**: Frontend uploads files → Backend `/api/upload` → `DocumentProcessor` → chunked → embedded → stored in `VectorStore` interface
-2. **Question Answering**: Frontend sends question → Backend `/api/query` (single response) or `/api/query/stream` (SSE) → `VectorStore.Search()` → context retrieval → LLM prompt → response → Frontend displays clean answer (rendered all at once or incrementally as tokens stream in, selectable via the response-mode toggle in the UI)
+2. **Question Answering**: Frontend sends question + prior chat `history` (capped client-side by `buildHistory`) → Backend `/api/query` (single response) or `/api/query/stream` (SSE) → history is trimmed to `maxHistoryTurns` and the last `retrievalRewriteWindow` user turns are folded into the embedding query → `VectorStore.Search()` → context retrieval → LLM prompt (system prompt + prior history + current question) → response → Frontend displays clean answer (rendered all at once or incrementally as tokens stream in, selectable via the response-mode toggle in the UI)
 
 ## Configuration Notes
 
@@ -192,9 +195,10 @@ When working on this project, pay attention to:
 
 ### Frontend
 - `frontend/src/app/page.tsx` - Main application interface with REST API integration
-- `frontend/src/lib/api/query.ts` - `sendQuery(mode, ...)` dispatcher and `QueryCallbacks` contract; pick `'stream'` or `'single'`
-- `frontend/src/lib/api/queryStream.ts` - SSE parser for `/api/query/stream`
-- `frontend/src/lib/api/queryOnce.ts` - Single-shot client for `/api/query`
+- `frontend/src/lib/api/query.ts` - `sendQuery(mode, question, history, backendUrl, callbacks)` dispatcher and `QueryCallbacks` contract; pick `'stream'` or `'single'`
+- `frontend/src/lib/api/queryStream.ts` - SSE parser for `/api/query/stream` (sends `question` + `history`)
+- `frontend/src/lib/api/queryOnce.ts` - Single-shot client for `/api/query` (sends `question` + `history`)
+- `frontend/src/lib/api/history.ts` - `buildHistory` helper that filters empty messages and caps payload to `MAX_TRANSPORTED_TURNS`; independent of the backend's own history cap
 - `frontend/src/types/index.ts` - Frontend type definitions (REST-compliant)
 - Frontend environment configuration for backend URL
 

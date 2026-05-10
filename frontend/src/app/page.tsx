@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { ChatMessage, DocumentChunk, UploadResponse, ErrorResponse } from '@/types';
 import { sendQuery, QueryMode } from '@/lib/api/query';
+import { buildHistory } from '@/lib/api/history';
 
 export default function Home() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -98,8 +99,9 @@ export default function Home() {
       );
     };
 
+    const history = buildHistory(messages);
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:3001';
-    await sendQuery(queryMode, question, backendUrl, {
+    await sendQuery(queryMode, question, history, backendUrl, {
       onSources: setAssistantSources,
       onToken: (chunk) => {
         setIsLoading(false);
@@ -155,6 +157,14 @@ export default function Home() {
           />
           Single response
         </label>
+        <button
+          type="button"
+          onClick={() => setMessages([])}
+          disabled={isLoading || messages.length === 0}
+          className="ml-auto text-blue-600 hover:underline disabled:text-gray-400 disabled:no-underline"
+        >
+          New chat
+        </button>
       </div>
 
       {/* Chat Interface */}

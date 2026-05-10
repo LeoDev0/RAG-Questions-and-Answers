@@ -40,8 +40,21 @@ type QueryResponse struct {
 	Confidence float64         `json:"confidence"`
 }
 
+type MessageRole string
+
+const (
+	RoleUser      MessageRole = "user"
+	RoleAssistant MessageRole = "assistant"
+)
+
+type Message struct {
+	Role    MessageRole `json:"role" binding:"required,oneof=user assistant"`
+	Content string      `json:"content" binding:"required"`
+}
+
 type QueryRequest struct {
-	Question string `json:"question" binding:"required"`
+	Question string    `json:"question" binding:"required"`
+	History  []Message `json:"history,omitempty" binding:"omitempty,dive"`
 }
 
 type ScoredChunk struct {
