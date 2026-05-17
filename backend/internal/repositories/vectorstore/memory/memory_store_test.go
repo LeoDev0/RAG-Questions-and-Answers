@@ -96,127 +96,28 @@ func TestMemoryVectorStoreStore(t *testing.T) {
 }
 
 func TestMemoryVectorStoreSearch(t *testing.T) {
-	type input struct {
-		seeded    []types.DocumentChunk
-		embedding []float64
-		limit     int
-	}
-	type expected struct {
-		ids []string
-	}
+	t.Run("returns empty result when the store is empty", func(t *testing.T) {
+		store := NewMemoryVectorStore()
 
-	tests := []struct {
-		name     string
-		input    input
-		expected expected
-	}{
-		{
-			name: "returns empty result when the store is empty",
-			input: input{
-				seeded:    nil,
-				embedding: []float64{1, 0, 0},
-				limit:     5,
-			},
-			expected: expected{ids: []string{}},
-		},
-		{
-			name: "orders results by descending similarity score",
-			input: input{
-				seeded: []types.DocumentChunk{
-					chunk("orthogonal", []float64{0, 1, 0}),
-					chunk("identical", []float64{1, 0, 0}),
-					chunk("similar", []float64{1, 1, 0}),
-				},
-				embedding: []float64{1, 0, 0},
-				limit:     5,
-			},
-			expected: expected{ids: []string{"identical", "similar", "orthogonal"}},
-		},
-		{
-			name: "caps results when limit is smaller than match count",
-			input: input{
-				seeded: []types.DocumentChunk{
-					chunk("identical", []float64{1, 0, 0}),
-					chunk("similar", []float64{1, 1, 0}),
-					chunk("orthogonal", []float64{0, 1, 0}),
-				},
-				embedding: []float64{1, 0, 0},
-				limit:     2,
-			},
-			expected: expected{ids: []string{"identical", "similar"}},
-		},
-		{
-			name: "returns all matches when limit exceeds match count",
-			input: input{
-				seeded: []types.DocumentChunk{
-					chunk("a", []float64{1, 0, 0}),
-					chunk("b", []float64{0, 1, 0}),
-				},
-				embedding: []float64{1, 0, 0},
-				limit:     10,
-			},
-			expected: expected{ids: []string{"a", "b"}},
-		},
-		{
-			name: "returns empty result when limit is zero",
-			input: input{
-				seeded: []types.DocumentChunk{
-					chunk("a", []float64{1, 0, 0}),
-				},
-				embedding: []float64{1, 0, 0},
-				limit:     0,
-			},
-			expected: expected{ids: []string{}},
-		},
-		{
-			name: "returns empty result when limit is negative",
-			input: input{
-				seeded: []types.DocumentChunk{
-					chunk("a", []float64{1, 0, 0}),
-				},
-				embedding: []float64{1, 0, 0},
-				limit:     -1,
-			},
-			expected: expected{ids: []string{}},
-		},
-		{
-			name: "skips chunks with empty embeddings",
-			input: input{
-				seeded: []types.DocumentChunk{
-					chunk("with-embedding", []float64{1, 0, 0}),
-					chunk("no-embedding", nil),
-				},
-				embedding: []float64{1, 0, 0},
-				limit:     5,
-			},
-			expected: expected{ids: []string{"with-embedding"}},
-		},
-		{
-			name: "scores a mismatched-dimension chunk as zero rather than dropping it",
-			input: input{
-				seeded: []types.DocumentChunk{
-					chunk("a", []float64{1, 0, 0}),
-				},
-				embedding: []float64{1, 0},
-				limit:     5,
-			},
-			expected: expected{ids: []string{"a"}},
-		},
-	}
+		result, err := store.Search([]float64{1, 0, 0}, 5)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := NewMemoryVectorStore()
-			if tt.input.seeded != nil {
-				assert.NoError(t, store.Store(tt.input.seeded))
-			}
+		assert.NoError(t, err)
+		assert.Empty(t, result)
+	})
 
-			result, err := store.Search(tt.input.embedding, tt.input.limit)
+	t.Run("delegates to similarity.Search over the stored chunks", func(t *testing.T) {
+		store := NewMemoryVectorStore()
+		assert.NoError(t, store.Store([]types.DocumentChunk{
+			chunk("orthogonal", []float64{0, 1, 0}),
+			chunk("identical", []float64{1, 0, 0}),
+			chunk("similar", []float64{1, 1, 0}),
+		}))
 
-			assert.NoError(t, err)
-			assert.Equal(t, tt.expected.ids, searchedIDs(result))
-		})
-	}
+		result, err := store.Search([]float64{1, 0, 0}, 5)
+
+		assert.NoError(t, err)
+		assert.Equal(t, []string{"identical", "similar", "orthogonal"}, searchedIDs(result))
+	})
 }
 
 func TestMemoryVectorStoreConcurrentAccess(t *testing.T) {
@@ -243,5 +144,9 @@ func TestMemoryVectorStoreConcurrentAccess(t *testing.T) {
 	result, err := store.Search(embedding, writers+10)
 
 	assert.NoError(t, err)
-	assert.Len(t, result, writers)
+	ids := make([]string, writers)
+	for i := 0; i < writers; i++ {
+		ids[i] = string(rune('a' + i))
+	}
+	assert.ElementsMatch(t, ids, searchedIDs(result))
 }
