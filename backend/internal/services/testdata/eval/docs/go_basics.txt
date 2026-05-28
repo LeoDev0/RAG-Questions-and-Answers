@@ -1,0 +1,9 @@
+The Go Programming Language
+
+Go was designed at Google in 2007 by Robert Griesemer, Rob Pike, and Ken Thompson. It was publicly announced in November 2009 and reached its version 1.0 release in March 2012. The language was created to improve programming productivity in an era of multicore processors, networked machines, and large codebases.
+
+Go is a statically typed, compiled language with syntax loosely derived from C. Unlike C, it adds memory safety, garbage collection, structural typing, and built-in concurrency primitives. Programs are compiled to native machine code, which makes Go binaries fast to start and easy to deploy because they ship as a single self-contained executable with no external runtime dependencies.
+
+Concurrency in Go is built around goroutines and channels. A goroutine is a lightweight thread managed by the Go runtime, and thousands of them can run on a small number of operating system threads. Channels provide a typed conduit through which goroutines communicate and synchronize, following the principle of sharing memory by communicating rather than communicating by sharing memory.
+
+The standard library is large and emphasizes networking, cryptography, and text processing. The go tool bundles building, testing, formatting, and dependency management into one command, so gofmt enforces a single canonical code style across the entire community.

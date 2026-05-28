@@ -1,0 +1,9 @@
+HTTP Caching
+
+HTTP caching lets clients and intermediaries reuse previously fetched responses, reducing latency and saving bandwidth. A well-tuned cache can serve most requests without ever contacting the origin server, which improves performance and reduces load.
+
+The Cache-Control header is the primary mechanism for controlling caching behavior in modern HTTP. Its max-age directive specifies the number of seconds a response is considered fresh, while the no-store directive forbids storing the response at all. The no-cache directive allows storing a response but requires revalidation with the origin before it is reused.
+
+Revalidation uses validators to check whether a cached copy is still current. An ETag is an opaque identifier the server assigns to a specific version of a resource. When a cache holds a stale response, it sends a conditional request with the If-None-Match header, and the server replies with 304 Not Modified if the resource is unchanged, letting the cache reuse its stored copy.
+
+Caches are commonly divided into two categories. A private cache stores responses for a single user, such as a browser cache, whereas a shared cache stores responses for many users, such as a CDN or proxy. Marking a response as private prevents shared caches from storing data that is specific to one user.

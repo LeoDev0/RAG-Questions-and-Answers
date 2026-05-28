@@ -1,0 +1,65 @@
+[
+  {
+    "id": "go-creators",
+    "document": "go_basics.txt",
+    "question": "Who created the Go programming language and where?",
+    "expected_source": "Go was designed at Google in 2007 by Robert Griesemer, Rob Pike, and Ken Thompson",
+    "expected_answer": "Go was designed at Google in 2007 by Robert Griesemer, Rob Pike, and Ken Thompson."
+  },
+  {
+    "id": "go-goroutines",
+    "document": "go_basics.txt",
+    "question": "What is a goroutine?",
+    "expected_source": "A goroutine is a lightweight thread managed by the Go runtime",
+    "expected_answer": "A goroutine is a lightweight thread managed by the Go runtime, and many can run on a few OS threads."
+  },
+  {
+    "id": "go-concurrency-paraphrase",
+    "document": "go_basics.txt",
+    "question": "How does Go let a program run many tasks at the same time?",
+    "expected_source": "Concurrency in Go is built around goroutines and channels",
+    "expected_answer": "Go provides concurrency through goroutines and channels."
+  },
+  {
+    "id": "photo-stages",
+    "document": "photosynthesis.txt",
+    "question": "How many stages does photosynthesis have?",
+    "expected_source": "Photosynthesis happens in two connected stages",
+    "expected_answer": "Photosynthesis happens in two connected stages: the light-dependent reactions and the Calvin cycle."
+  },
+  {
+    "id": "photo-limiting-factors",
+    "document": "photosynthesis.txt",
+    "question": "What factors limit the rate of photosynthesis?",
+    "expected_source": "The main limiting factors are light intensity, carbon dioxide concentration, and temperature",
+    "expected_answer": "Light intensity, carbon dioxide concentration, and temperature limit the rate of photosynthesis."
+  },
+  {
+    "id": "photo-green-paraphrase",
+    "document": "photosynthesis.txt",
+    "question": "Why do leaves look green to us?",
+    "expected_source": "reflects green light, which is why leaves appear green to the human eye",
+    "expected_answer": "Chlorophyll reflects green light, so leaves appear green."
+  },
+  {
+    "id": "http-max-age",
+    "document": "http_caching.txt",
+    "question": "What does the Cache-Control max-age directive do?",
+    "expected_source": "Its max-age directive specifies the number of seconds a response is considered fresh",
+    "expected_answer": "max-age specifies how many seconds a response is considered fresh."
+  },
+  {
+    "id": "http-etag",
+    "document": "http_caching.txt",
+    "question": "What is an ETag?",
+    "expected_source": "An ETag is an opaque identifier the server assigns to a specific version of a resource",
+    "expected_answer": "An ETag is an opaque identifier the server assigns to a specific version of a resource."
+  },
+  {
+    "id": "http-cache-types-paraphrase",
+    "document": "http_caching.txt",
+    "question": "What is the difference between a per-user cache and one shared across many users?",
+    "expected_source": "A private cache stores responses for a single user",
+    "expected_answer": "A private cache stores responses for one user, while a shared cache stores responses for many users."
+  }
+]
