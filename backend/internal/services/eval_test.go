@@ -148,6 +148,25 @@ func recallAtK(ranks []int, k int) float64 {
 	return float64(hits) / float64(len(ranks))
 }
 
+type evalMetrics struct {
+	Cases     int     `json:"cases"`
+	K         int     `json:"k"`
+	HitAt1    float64 `json:"hit_at_1"`
+	RecallAtK float64 `json:"recall_at_k"`
+	MRR       float64 `json:"mrr"`
+}
+
+func writeEvalMetrics(t *testing.T, m evalMetrics) {
+	t.Helper()
+	path := os.Getenv("EVAL_METRICS_OUT")
+	if path == "" {
+		return
+	}
+	raw, err := json.Marshal(m)
+	assert.NoError(t, err)
+	assert.NoError(t, os.WriteFile(path, raw, 0o644))
+}
+
 func meanReciprocalRank(ranks []int) float64 {
 	if len(ranks) == 0 {
 		return 0
@@ -207,6 +226,14 @@ func TestEvalRetrieval(t *testing.T) {
 	}
 	t.Logf("retrieval eval over %d cases (k=%d): hit@1=%.3f recall@%d=%.3f mrr=%.3f",
 		len(ranks), evalSearchK, got.hitRateAt1, evalSearchK, got.recallAtK, got.mrr)
+
+	writeEvalMetrics(t, evalMetrics{
+		Cases:     len(ranks),
+		K:         evalSearchK,
+		HitAt1:    got.hitRateAt1,
+		RecallAtK: got.recallAtK,
+		MRR:       got.mrr,
+	})
 
 	assert.GreaterOrEqual(t, got.hitRateAt1, want.hitRateAt1)
 	assert.GreaterOrEqual(t, got.recallAtK, want.recallAtK)
