@@ -84,9 +84,7 @@ type goldenCase struct {
 	Document       string `json:"document"`
 	Question       string `json:"question"`
 	ExpectedSource string `json:"expected_source"`
-	// ExpectedAnswer is reserved for a future answer-quality eval; the current
-	// harness is retrieval-only and does not assert on it.
-	ExpectedAnswer string `json:"expected_answer"`
+	ExpectedAnswer string `json:"expected_answer"` // reserved for a future answer-quality eval; the current harness is retrieval-only and does not assert on it.
 }
 
 func loadGoldenSet(t *testing.T) []goldenCase {
