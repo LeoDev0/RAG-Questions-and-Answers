@@ -84,6 +84,8 @@ type goldenCase struct {
 	Document       string `json:"document"`
 	Question       string `json:"question"`
 	ExpectedSource string `json:"expected_source"`
+	// ExpectedAnswer is reserved for a future answer-quality eval; the current
+	// harness is retrieval-only and does not assert on it.
 	ExpectedAnswer string `json:"expected_answer"`
 }
 
@@ -162,7 +164,7 @@ func meanReciprocalRank(ranks []int) float64 {
 }
 
 func TestEvalRetrieval(t *testing.T) {
-	const evalSearchK = 5
+	const evalSearchK = maxContentChunks
 	type threshold struct {
 		hitRateAt1 float64
 		recallAtK  float64
