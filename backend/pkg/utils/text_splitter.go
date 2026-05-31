@@ -20,8 +20,9 @@ func NewTextSplitter(chunkSize, chunkOverlap int) *TextSplitter {
 var separators = []string{"\n\n", "\n", ". ", "? ", "! ", " ", ""}
 
 // SplitText splits the input text into chunks that respect the separator hierarchy,
-// only breaking at a finer level when a piece still exceeds ChunkSize. Every emitted
-// chunk has at most ChunkSize runes.
+// only breaking at a finer level when a piece still exceeds ChunkSize. When ChunkSize
+// is at least 1, every emitted chunk has at most ChunkSize runes; a non-positive
+// ChunkSize disables splitting and returns the text unchanged.
 func (ts *TextSplitter) SplitText(text string) []string {
 	if ts.ChunkSize < 1 || utf8.RuneCountInString(text) <= ts.ChunkSize {
 		return []string{text}
