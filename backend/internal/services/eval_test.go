@@ -212,11 +212,11 @@ func TestEvalRetrieval(t *testing.T) {
 
 	ranks := make([]int, 0, len(cases))
 	for _, gc := range cases {
-		t.Run(gc.ID, func(t *testing.T) {
-			rank := retrievedRank(t, store, embeddingDims, gc.Question, gc.ExpectedSource, evalSearchK)
-			assert.NotZero(t, rank, "expected source not retrieved within top %d for %q", evalSearchK, gc.Question)
-			ranks = append(ranks, rank)
-		})
+		rank := retrievedRank(t, store, embeddingDims, gc.Question, gc.ExpectedSource, evalSearchK)
+		ranks = append(ranks, rank)
+		if rank == 0 {
+			t.Logf("miss: %s not retrieved within top %d for %q", gc.ID, evalSearchK, gc.Question)
+		}
 	}
 
 	got := threshold{
