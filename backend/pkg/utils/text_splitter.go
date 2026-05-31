@@ -17,10 +17,6 @@ func NewTextSplitter(chunkSize, chunkOverlap int) *TextSplitter {
 	}
 }
 
-// separators descends from paragraphs to lines to sentence boundaries to words to
-// characters. The list is ASCII-only: CJK enders such as 。？！ are not included, so
-// CJK text falls through to the character-level fallback. The empty string always
-// matches and guarantees termination.
 var separators = []string{"\n\n", "\n", ". ", "? ", "! ", " ", ""}
 
 // SplitText splits the input text into chunks that respect the separator hierarchy,
