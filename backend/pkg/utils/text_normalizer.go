@@ -14,9 +14,11 @@ const (
 
 const paragraphSentinel = "\x00"
 
+const numericLineSignature = "\x01num"
+
 var (
 	reLineEndings  = regexp.MustCompile(`\r\n?`)
-	reHyphenBreak  = regexp.MustCompile(`(\p{L})-[ \t]*\n[ \t]*(\p{L})`)
+	reHyphenBreak  = regexp.MustCompile(`(\p{L})-[ \t]*\n[ \t]*\n?[ \t]*(\p{L})`)
 	reHorizontalWS = regexp.MustCompile(`[ \t]+`)
 	reParagraph    = regexp.MustCompile(`[ \t]*\n[ \t]*\n[ \t\n]*`)
 	reSingleNL     = regexp.MustCompile(`[ \t]*\n[ \t]*`)
@@ -105,8 +107,12 @@ func bottomLines(lines []string, n int) []string {
 }
 
 func lineSignature(line string) string {
-	line = reDigits.ReplaceAllString(line, "")
-	return strings.Join(strings.Fields(strings.ToLower(line)), " ")
+	sig := strings.Join(strings.Fields(strings.ToLower(line)), " ")
+	stripped := strings.TrimSpace(reDigits.ReplaceAllString(sig, ""))
+	if stripped == "" && sig != "" {
+		return numericLineSignature
+	}
+	return stripped
 }
 
 func frequentSignatures(counts map[string]int, threshold int) map[string]bool {

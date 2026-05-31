@@ -25,6 +25,11 @@ func TestNormalize(t *testing.T) {
 			expected: "example",
 		},
 		{
+			name:     "joins a word hyphenated across a page break",
+			text:     "compre-\n\nhensive",
+			expected: "comprehensive",
+		},
+		{
 			name:     "preserves a real mid-line hyphen",
 			text:     "well-known",
 			expected: "well-known",
@@ -109,6 +114,15 @@ func TestStripRepeatedHeadersFooters(t *testing.T) {
 				"Alpha body content\nPage 1",
 				"Beta body content\nPage 2",
 				"Gamma body content\nPage 3",
+			},
+			expected: "Alpha body content\n\nBeta body content\n\nGamma body content",
+		},
+		{
+			name: "strips bare page-number footers",
+			pages: []string{
+				"Alpha body content\n12",
+				"Beta body content\n13",
+				"Gamma body content\n14",
 			},
 			expected: "Alpha body content\n\nBeta body content\n\nGamma body content",
 		},
