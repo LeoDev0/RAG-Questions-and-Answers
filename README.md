@@ -86,6 +86,23 @@ npm run dev
 
 The frontend will run on `http://localhost:3000`
 
+## Testing
+
+```bash
+cd backend
+
+# Run the full Go test suite
+go test ./...
+
+# Run the offline retrieval evaluation harness (no API keys required)
+go test ./internal/services/ -run TestEvalRetrieval -v
+```
+
+The retrieval harness scores chunking/retrieval changes against a golden set
+(`hit@1`, `recall@k`, `MRR`) using a deterministic local embedder, so it runs
+fully offline and acts as a regression gate in CI. See `backend/CLAUDE.md` for
+how to read the metrics and add golden cases.
+
 ## API Endpoints
 
 - **POST** `/api/upload` - Upload and process documents

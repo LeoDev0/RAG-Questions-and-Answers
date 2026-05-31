@@ -1,0 +1,128 @@
+[
+  {
+    "id": "go-creators",
+    "document": "go_basics.txt",
+    "question": "Who created the Go programming language and where?",
+    "expected_source": "Go was designed at Google in 2007 by Robert Griesemer, Rob Pike, and Ken Thompson",
+    "expected_answer": "Go was designed at Google in 2007 by Robert Griesemer, Rob Pike, and Ken Thompson."
+  },
+  {
+    "id": "go-goroutines",
+    "document": "go_basics.txt",
+    "question": "What is a goroutine?",
+    "expected_source": "A goroutine is a lightweight thread managed by the Go runtime",
+    "expected_answer": "A goroutine is a lightweight thread managed by the Go runtime, and many can run on a few OS threads."
+  },
+  {
+    "id": "go-concurrency-paraphrase",
+    "document": "go_basics.txt",
+    "question": "How does Go let a program run many tasks at the same time?",
+    "expected_source": "Concurrency in Go is built around goroutines and channels",
+    "expected_answer": "Go provides concurrency through goroutines and channels."
+  },
+  {
+    "id": "photo-stages",
+    "document": "photosynthesis.txt",
+    "question": "How many stages does photosynthesis have?",
+    "expected_source": "Photosynthesis happens in two connected stages",
+    "expected_answer": "Photosynthesis happens in two connected stages: the light-dependent reactions and the Calvin cycle."
+  },
+  {
+    "id": "photo-limiting-factors",
+    "document": "photosynthesis.txt",
+    "question": "What factors limit the rate of photosynthesis?",
+    "expected_source": "The main limiting factors are light intensity, carbon dioxide concentration, and temperature",
+    "expected_answer": "Light intensity, carbon dioxide concentration, and temperature limit the rate of photosynthesis."
+  },
+  {
+    "id": "photo-green-paraphrase",
+    "document": "photosynthesis.txt",
+    "question": "Why do leaves look green to us?",
+    "expected_source": "reflects green light, which is why leaves appear green to the human eye",
+    "expected_answer": "Chlorophyll reflects green light, so leaves appear green."
+  },
+  {
+    "id": "http-max-age",
+    "document": "http_caching.txt",
+    "question": "What does the Cache-Control max-age directive do?",
+    "expected_source": "Its max-age directive specifies the number of seconds a response is considered fresh",
+    "expected_answer": "max-age specifies how many seconds a response is considered fresh."
+  },
+  {
+    "id": "http-etag",
+    "document": "http_caching.txt",
+    "question": "What is an ETag?",
+    "expected_source": "An ETag is an opaque identifier the server assigns to a specific version of a resource",
+    "expected_answer": "An ETag is an opaque identifier the server assigns to a specific version of a resource."
+  },
+  {
+    "id": "http-cache-types-paraphrase",
+    "document": "http_caching.txt",
+    "question": "What is the difference between a per-user cache and one shared across many users?",
+    "expected_source": "A private cache stores responses for a single user",
+    "expected_answer": "A private cache stores responses for one user, while a shared cache stores responses for many users."
+  },
+  {
+    "id": "water-evaporation",
+    "document": "water_cycle.txt",
+    "question": "What is evaporation?",
+    "expected_source": "Evaporation is the process by which liquid water turns into water vapor and rises into the atmosphere",
+    "expected_answer": "Evaporation is liquid water turning into water vapor and rising into the atmosphere."
+  },
+  {
+    "id": "water-precipitation",
+    "document": "water_cycle.txt",
+    "question": "What forms of precipitation are there?",
+    "expected_source": "they fall back to the surface as precipitation, which includes rain, snow, sleet, and hail",
+    "expected_answer": "Precipitation includes rain, snow, sleet, and hail."
+  },
+  {
+    "id": "water-transpiration-paraphrase",
+    "document": "water_cycle.txt",
+    "question": "How do plants put moisture back into the air?",
+    "expected_source": "Plants also release water vapor through a related process called transpiration",
+    "expected_answer": "Plants release water vapor through transpiration."
+  },
+  {
+    "id": "tcp-ip-routing",
+    "document": "tcp_ip.txt",
+    "question": "What is IP responsible for?",
+    "expected_source": "IP is responsible for addressing and routing",
+    "expected_answer": "IP is responsible for addressing and routing packets across networks."
+  },
+  {
+    "id": "tcp-handshake",
+    "document": "tcp_ip.txt",
+    "question": "How does TCP start a connection?",
+    "expected_source": "It establishes a connection using a three-way handshake before any data is sent",
+    "expected_answer": "TCP establishes a connection using a three-way handshake before sending data."
+  },
+  {
+    "id": "tcp-udp-games-paraphrase",
+    "document": "tcp_ip.txt",
+    "question": "Which protocol do online games tend to use?",
+    "expected_source": "Applications such as live video and online games often prefer UDP for this reason",
+    "expected_answer": "Online games often prefer UDP because it trades reliability for lower latency."
+  },
+  {
+    "id": "french-rev-start",
+    "document": "french_revolution.txt",
+    "question": "When did the French Revolution begin?",
+    "expected_source": "The French Revolution began in 1789 and brought an end to centuries of absolute monarchy",
+    "expected_answer": "The French Revolution began in 1789."
+  },
+  {
+    "id": "french-rev-declaration",
+    "document": "french_revolution.txt",
+    "question": "What was the Declaration of the Rights of Man?",
+    "expected_source": "the National Assembly adopted the Declaration of the Rights of Man and of the Citizen, which proclaimed that all men are born free and equal in rights",
+    "expected_answer": "A 1789 statement by the National Assembly that all men are born free and equal in rights."
+  },
+  {
+    "id": "french-rev-bastille-paraphrase",
+    "document": "french_revolution.txt",
+    "question": "Why did the crowds attack the Bastille?",
+    "expected_source": "crowds attacked it in search of gunpowder and to protest royal authority",
+    "expected_answer": "Crowds attacked the Bastille to seize gunpowder and to protest royal authority."
+  }
+]

@@ -31,6 +31,8 @@ jobs:
 
       - name: Run tests with coverage
         working-directory: backend
+        env:
+          EVAL_METRICS_OUT: ${{ github.workspace }}/backend/eval-head.json
         run: |
           go test ./... -coverprofile=coverage.out -covermode=atomic
 
@@ -39,6 +41,69 @@ jobs:
         with:
           name: go-coverage
           path: backend/coverage.out
+
+      - name: Evaluate retrieval on base branch
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set +e
+          git fetch --depth=1 origin "$BASE_REF" || exit 0
+          git worktree add /tmp/eval-base FETCH_HEAD || exit 0
+          if [ -f /tmp/eval-base/backend/internal/services/eval_test.go ]; then
+            cd /tmp/eval-base/backend
+            EVAL_METRICS_OUT="$GITHUB_WORKSPACE/backend/eval-base.json" \
+              go test ./internal/services/ -run TestEvalRetrieval -count=1
+          else
+            echo "Base branch has no retrieval harness; treating this PR as the baseline."
+          fi
+
+      - name: Retrieval evaluation summary
+        if: ${{ always() }}
+        working-directory: backend
+        run: |
+          python3 - <<'PY'
+          import json, os
+
+          def load(path):
+              try:
+                  with open(path) as f:
+                      return json.load(f)
+              except FileNotFoundError:
+                  return None
+
+          head = load("eval-head.json")
+          base = load("eval-base.json")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as s:
+              s.write("## Retrieval evaluation\n\n")
+              if head is None:
+                  s.write("No metrics were produced for this run (the eval did not run).\n")
+                  raise SystemExit(0)
+
+              k = head["k"]
+              rows = [("hit@1", "hit_at_1"), (f"recall@{k}", "recall_at_k"), ("MRR", "mrr")]
+
+              s.write(f"Golden cases: {head['cases']} · search depth k={k}\n\n")
+              s.write("| Metric | Base | This PR | Δ |\n")
+              s.write("| --- | --- | --- | --- |\n")
+              for label, key in rows:
+                  pr = head[key]
+                  if base is None:
+                      s.write(f"| {label} | n/a | {pr:.3f} | \U0001f195 new |\n")
+                      continue
+                  b = base[key]
+                  d = pr - b
+                  if abs(d) < 1e-9:
+                      arrow = "—"
+                  elif d > 0:
+                      arrow = f"\U0001f53c +{d:.3f}"
+                  else:
+                      arrow = f"\U0001f53d {d:.3f}"
+                  s.write(f"| {label} | {b:.3f} | {pr:.3f} | {arrow} |\n")
+
+              s.write("\n_Visibility only — the merge gate is the threshold assertion in `TestEvalRetrieval`._\n")
+          PY
 
   coverage:
     name: Check Test Coverage

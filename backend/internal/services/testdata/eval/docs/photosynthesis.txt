@@ -1,0 +1,9 @@
+Photosynthesis
+
+Photosynthesis is the process by which green plants, algae, and some bacteria convert light energy into chemical energy stored in sugars. It is the foundation of almost every food chain on Earth and is responsible for producing the oxygen that most living organisms breathe.
+
+The overall reaction combines carbon dioxide and water, powered by sunlight, to produce glucose and oxygen. Chlorophyll, the green pigment found in chloroplasts, absorbs light most strongly in the blue and red parts of the spectrum and reflects green light, which is why leaves appear green to the human eye.
+
+Photosynthesis happens in two connected stages. The light-dependent reactions take place in the thylakoid membranes, where absorbed light splits water molecules, releases oxygen, and stores energy in the carrier molecules ATP and NADPH. The light-independent reactions, also called the Calvin cycle, occur in the stroma and use that stored energy to fix carbon dioxide into glucose.
+
+Several environmental factors limit the rate of photosynthesis. The main limiting factors are light intensity, carbon dioxide concentration, and temperature. When any one of these is in short supply it caps the overall rate, no matter how plentiful the others are.
