@@ -22,8 +22,8 @@ Run it:
 go test ./internal/services/ -run TestEvalRetrieval -v
 ```
 
-The `-v` output logs the metric line, e.g.
-`retrieval eval over 18 cases (k=4): hit@1=0.722 recall@4=0.944 mrr=0.815`.
+The `-v` output logs a metric line of the form
+`retrieval eval over N cases (k=K): hit@1=... recall@K=... mrr=...`.
 It computes `hit@1`, `recall@k` (k = `maxContentChunks`, matching what
 production feeds the LLM), and `MRR`, and asserts each against a threshold. The
 gate also runs as part of the normal `go test ./...` suite in CI.
