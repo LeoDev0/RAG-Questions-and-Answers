@@ -1,0 +1,9 @@
+TCP and IP
+
+The Internet protocol suite is built on two core protocols that work together: the Transmission Control Protocol (TCP) and the Internet Protocol (IP). Together they define how data is packaged, addressed, and delivered across networks.
+
+IP is responsible for addressing and routing. Every device on a network is assigned an IP address, and IP breaks data into packets and forwards each packet toward its destination based on that address. IP itself is connectionless and makes no guarantee that packets arrive, arrive in order, or arrive only once.
+
+TCP runs on top of IP and adds reliability. It establishes a connection using a three-way handshake before any data is sent, numbers each segment so the receiver can reassemble them in order, and retransmits any segment that is lost. This is why TCP is described as a reliable, connection-oriented protocol.
+
+Not every application needs that overhead. The User Datagram Protocol (UDP) is a lightweight alternative that sends packets without handshakes or retransmission, trading reliability for lower latency. Applications such as live video and online games often prefer UDP for this reason.
