@@ -2,13 +2,13 @@ Retrieval Evaluation Metrics
 
 A compre-
 hensive evaluation of retrieval quality measures how often the
-correct passage is ranked first, how many relevant passages appear
-in the top results, and the average position of the first correct
-hit. These signals are usually reported as hit rate, recall, and
-mean recip-
+correct passage is ranked first, what share of relevant passages
+appear in the top results, and the average position of the first
+correct hit. These signals are usually reported as hit rate, recall,
+and mean recip-
 rocal rank.
 
-Offline gates run the embedding and ranking path against a fixed
-golden set so that chunking changes can be judged by numbers instead
-of by eye. Because the embedder is deterministic, the same documents
-always produce the same scores, which makes regressions easy to spot.
+Offline gates score the embedding and ranking pipeline against a fixed
+golden set so chunking changes can be judged by numbers instead of by
+eye. Because the embedder is deterministic, identical inputs always
+yield identical scores, which makes regressions easy to spot.
