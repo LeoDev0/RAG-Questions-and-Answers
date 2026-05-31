@@ -57,7 +57,7 @@ func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RA
 }
 
 func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
-	textChunks := rp.textSplitter.SplitText(content)
+	textChunks := rp.textSplitter.SplitText(utils.Normalize(content))
 
 	var embeddings [][]float64
 	var err error

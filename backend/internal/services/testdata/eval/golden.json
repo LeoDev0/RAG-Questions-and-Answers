@@ -124,5 +124,12 @@
     "question": "Why did the crowds attack the Bastille?",
     "expected_source": "crowds attacked it in search of gunpowder and to protest royal authority",
     "expected_answer": "Crowds attacked the Bastille to seize gunpowder and to protest royal authority."
+  },
+  {
+    "id": "embeddings-dirty-comprehensive",
+    "document": "embeddings_dirty.txt",
+    "question": "What does a comprehensive evaluation of retrieval quality measure?",
+    "expected_source": "comprehensive evaluation of retrieval quality measures how often the correct passage is ranked first",
+    "expected_answer": "It measures how often the correct passage is ranked first, recall within the top results, and the average position of the first correct hit."
   }
 ]
