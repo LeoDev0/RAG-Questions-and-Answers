@@ -1,7 +1,9 @@
 package utils
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -92,6 +94,42 @@ func TestSplitText(t *testing.T) {
 			text:     japaneseText,
 			expected: expected{chunks: []string{japaneseText}},
 		},
+		{
+			name:     "splits on paragraph boundaries before finer separators",
+			splitter: splitter{chunkSize: 6, chunkOverlap: 0},
+			text:     "AAAA\n\nBBBB\n\nCCCC",
+			expected: expected{chunks: []string{"AAAA", "BBBB", "CCCC"}},
+		},
+		{
+			name:     "splits on sentence boundaries keeping the trailing period",
+			splitter: splitter{chunkSize: 15, chunkOverlap: 0},
+			text:     "Alpha is one. Beta is two. Gamma is three.",
+			expected: expected{chunks: []string{"Alpha is one.", "Beta is two.", "Gamma is three."}},
+		},
+		{
+			name:     "snaps overlap to a whole word instead of cutting mid word",
+			splitter: splitter{chunkSize: 16, chunkOverlap: 6},
+			text:     "alpha beta gamma delta",
+			expected: expected{chunks: []string{"alpha beta", "beta gamma delta"}},
+		},
+		{
+			name:     "splits on word boundaries with no overlap",
+			splitter: splitter{chunkSize: 12, chunkOverlap: 0},
+			text:     "alpha beta gamma delta",
+			expected: expected{chunks: []string{"alpha beta", "gamma delta"}},
+		},
+		{
+			name:     "drops empty pieces from leading trailing and duplicate separators",
+			splitter: splitter{chunkSize: 3, chunkOverlap: 0},
+			text:     "\n\n\nA\n\nB\n\n",
+			expected: expected{chunks: []string{"A", "B"}},
+		},
+		{
+			name:     "returns whole text when chunk size is not positive",
+			splitter: splitter{chunkSize: 0, chunkOverlap: 0},
+			text:     "abcdef",
+			expected: expected{chunks: []string{"abcdef"}},
+		},
 	}
 
 	for _, tt := range tests {
@@ -102,5 +140,67 @@ func TestSplitText(t *testing.T) {
 
 			assert.Equal(t, tt.expected.chunks, result)
 		})
+	}
+}
+
+func TestSplitTextChunkSizeBound(t *testing.T) {
+	type splitter struct {
+		chunkSize    int
+		chunkOverlap int
+	}
+
+	tests := []struct {
+		name     string
+		splitter splitter
+		text     string
+	}{
+		{
+			name:     "structured document with paragraphs and sentences",
+			splitter: splitter{chunkSize: 1000, chunkOverlap: 200},
+			text:     strings.Repeat("This is a sentence about chunking. It has structure.\n\n", 100),
+		},
+		{
+			name:     "single long token without any separator",
+			splitter: splitter{chunkSize: 1000, chunkOverlap: 200},
+			text:     strings.Repeat("abcdefghij", 250),
+		},
+		{
+			name:     "overlap larger than chunk size still terminates",
+			splitter: splitter{chunkSize: 5, chunkOverlap: 100},
+			text:     "abcdefghij",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ts := NewTextSplitter(tt.splitter.chunkSize, tt.splitter.chunkOverlap)
+
+			result := ts.SplitText(tt.text)
+
+			assert.NotEmpty(t, result)
+			for _, chunk := range result {
+				assert.LessOrEqual(t, utf8.RuneCountInString(chunk), tt.splitter.chunkSize)
+				assert.NotEmpty(t, chunk)
+			}
+		})
+	}
+}
+
+func TestSplitTextLongTokenReproducesSlidingWindow(t *testing.T) {
+	ts := NewTextSplitter(1000, 200)
+	text := strings.Repeat("abcdefghij", 250)
+
+	result := ts.SplitText(text)
+
+	assert.Len(t, result, 3)
+	assert.Equal(t, 1000, utf8.RuneCountInString(result[0]))
+	assert.Equal(t, 1000, utf8.RuneCountInString(result[1]))
+	assert.Equal(t, 900, utf8.RuneCountInString(result[2]))
+
+	for i := 0; i < len(result)-1; i++ {
+		current := []rune(result[i])
+		next := []rune(result[i+1])
+		overlap := string(current[len(current)-200:])
+		assert.Equal(t, overlap, string(next[:200]))
 	}
 }
