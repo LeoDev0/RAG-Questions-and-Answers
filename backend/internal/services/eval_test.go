@@ -64,10 +64,27 @@ func embedText(text string, dims int) []float64 {
 	return vec
 }
 
+var stopwords = map[string]bool{
+	"a": true, "an": true, "and": true, "are": true, "as": true, "at": true,
+	"be": true, "but": true, "by": true, "do": true, "does": true, "for": true,
+	"from": true, "how": true, "in": true, "into": true, "is": true, "it": true,
+	"its": true, "of": true, "on": true, "or": true, "over": true, "that": true,
+	"the": true, "their": true, "them": true, "there": true, "this": true,
+	"to": true, "us": true, "was": true, "were": true, "what": true, "when": true,
+	"where": true, "which": true, "who": true, "why": true, "with": true, "you": true,
+}
+
 func tokenize(text string) []string {
-	return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+	raw := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
 	})
+	tokens := raw[:0]
+	for _, t := range raw {
+		if !stopwords[t] {
+			tokens = append(tokens, t)
+		}
+	}
+	return tokens
 }
 
 func newEvalPipeline(ec EmbeddingCreator, vs vectorstore.VectorStore) *RAGPipeline {
@@ -189,7 +206,7 @@ func TestEvalRetrieval(t *testing.T) {
 	}
 	// Thresholds are calibrated just below the current baseline so the gate
 	// fails on retrieval regressions; raise them as chunking/retrieval improves.
-	want := threshold{hitRateAt1: 0.45, recallAtK: 0.7, mrr: 0.55}
+	want := threshold{hitRateAt1: 0.65, recallAtK: 0.85, mrr: 0.75}
 
 	cases := loadGoldenSet(t)
 	assert.NotEmpty(t, cases)
