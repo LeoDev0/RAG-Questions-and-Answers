@@ -27,6 +27,11 @@ const (
 	// are pulled in around each search hit to give the LLM fuller surrounding
 	// context than the matched fragment alone.
 	neighborRadius = 1
+	// maxContextChars caps the assembled context size (approx. bytes). Hits are
+	// always kept; neighbors fill the remaining budget. The default is generous
+	// enough that the k=4 x radius=1 path never truncates, so it only bites if
+	// neighborRadius is raised.
+	maxContextChars = 24000
 	// maxHistoryTurns bounds how many prior turns are sent to the LLM as
 	// conversational context. retrievalRewriteWindow bounds how many recent
 	// user turns are folded into the embedding query for vector search.
@@ -155,45 +160,102 @@ func (rp *RAGPipeline) retrieveContext(question string) ([]types.DocumentChunk, 
 }
 
 // expandContext widens each search hit with its adjacent chunks (same source,
-// within neighborRadius), dedupes by ID, and assembles the result in document
-// order so the LLM sees fuller surrounding context. The hits themselves remain
-// the response's attributed sources; only this context string grows.
+// within neighborRadius), dedupes by ID, trims the budget, and assembles the
+// result in document order so the LLM sees fuller surrounding context. The hits
+// themselves remain the response's attributed sources; only this context grows.
 func (rp *RAGPipeline) expandContext(hits []types.DocumentChunk) string {
 	byID := make(map[string]types.DocumentChunk, len(hits))
+	hitIDs := make(map[string]bool, len(hits))
 	for _, hit := range hits {
 		byID[hit.ID] = hit
+		hitIDs[hit.ID] = true
 		neighbors, err := rp.vectorStore.Neighbors(hit.Source, hit.ChunkIndex, neighborRadius)
 		if err != nil {
 			// Degrade gracefully: keep the hit, skip its neighbors.
 			continue
 		}
 		for _, neighbor := range neighbors {
-			byID[neighbor.ID] = neighbor
+			if _, seen := byID[neighbor.ID]; !seen {
+				byID[neighbor.ID] = neighbor
+			}
 		}
 	}
 
-	expanded := make([]types.DocumentChunk, 0, len(byID))
+	ordered := make([]types.DocumentChunk, 0, len(byID))
 	for _, chunk := range byID {
-		expanded = append(expanded, chunk)
+		ordered = append(ordered, chunk)
 	}
-	sort.Slice(expanded, func(i, j int) bool {
-		if expanded[i].Source != expanded[j].Source {
-			return expanded[i].Source < expanded[j].Source
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].Source != ordered[j].Source {
+			return ordered[i].Source < ordered[j].Source
 		}
-		if expanded[i].ChunkIndex != expanded[j].ChunkIndex {
-			return expanded[i].ChunkIndex < expanded[j].ChunkIndex
+		if ordered[i].ChunkIndex != ordered[j].ChunkIndex {
+			return ordered[i].ChunkIndex < ordered[j].ChunkIndex
 		}
-		return expanded[i].ID < expanded[j].ID
+		return ordered[i].ID < ordered[j].ID
 	})
 
-	var contextBuilder strings.Builder
-	for i, chunk := range expanded {
-		if i > 0 {
-			contextBuilder.WriteString("\n\n")
+	selected := selectWithinBudget(ordered, hitIDs, maxContextChars)
+	return assembleContext(selected)
+}
+
+// selectWithinBudget keeps every hit and fills the remaining budget with
+// neighbors in document order. It estimates with raw content length, an upper
+// bound on the assembled size since overlap merging only removes text, so the
+// emitted context never exceeds the budget. Hits are kept even if they alone
+// exceed it, to preserve source attribution.
+func selectWithinBudget(ordered []types.DocumentChunk, hitIDs map[string]bool, budget int) []types.DocumentChunk {
+	total := 0
+	for _, c := range ordered {
+		if hitIDs[c.ID] {
+			total += len(c.Content)
 		}
-		contextBuilder.WriteString(chunk.Content)
 	}
-	return contextBuilder.String()
+
+	selected := make([]types.DocumentChunk, 0, len(ordered))
+	for _, c := range ordered {
+		if hitIDs[c.ID] {
+			selected = append(selected, c)
+			continue
+		}
+		if total+len(c.Content) <= budget {
+			total += len(c.Content)
+			selected = append(selected, c)
+		}
+	}
+	return selected
+}
+
+// assembleContext joins chunks in document order, splicing out the duplicated
+// overlap between adjacent chunks of the same source so boundary text is emitted
+// once. Chunks without offsets, gaps, and source boundaries fall back to a blank
+// line separator.
+func assembleContext(chunks []types.DocumentChunk) string {
+	var b strings.Builder
+	var prevSource string
+	var prevEnd int
+	started := false
+
+	for _, c := range chunks {
+		if started && c.Source == prevSource && prevEnd > 0 && c.EndOffset > 0 && c.StartOffset < prevEnd {
+			overlap := prevEnd - c.StartOffset
+			if overlap < len(c.Content) {
+				b.WriteString(c.Content[overlap:])
+			}
+			prevEnd = max(prevEnd, c.EndOffset)
+			continue
+		}
+
+		if started {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(c.Content)
+		prevSource = c.Source
+		prevEnd = c.EndOffset
+		started = true
+	}
+
+	return b.String()
 }
 
 func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.DocumentChunk, contextInfo string, history []types.Message, question string, events chan<- StreamEvent) {

@@ -984,6 +984,123 @@ func TestQuery_OverlappingNeighborWindowsDedupedAndDocumentsNotInterleaved(t *te
 	assert.Equal(t, 1, strings.Count(capturedPrompt, "a1"))
 }
 
+func TestAssembleContext(t *testing.T) {
+	type expected struct {
+		context string
+	}
+
+	tests := []struct {
+		name     string
+		chunks   []types.DocumentChunk
+		expected expected
+	}{
+		{
+			name: "splices out duplicated overlap between adjacent chunks",
+			chunks: []types.DocumentChunk{
+				{Content: "Hello world foo", Source: "d", StartOffset: 0, EndOffset: 15},
+				{Content: "world foo bar baz", Source: "d", StartOffset: 6, EndOffset: 23},
+			},
+			expected: expected{context: "Hello world foo bar baz"},
+		},
+		{
+			name: "keeps a separator across a non-adjacent gap",
+			chunks: []types.DocumentChunk{
+				{Content: "Alpha block", Source: "d", StartOffset: 0, EndOffset: 11},
+				{Content: "Gamma block", Source: "d", StartOffset: 40, EndOffset: 51},
+			},
+			expected: expected{context: "Alpha block\n\nGamma block"},
+		},
+		{
+			name: "skips a fully contained chunk",
+			chunks: []types.DocumentChunk{
+				{Content: "abcdefghij", Source: "d", StartOffset: 0, EndOffset: 10},
+				{Content: "cdef", Source: "d", StartOffset: 2, EndOffset: 6},
+			},
+			expected: expected{context: "abcdefghij"},
+		},
+		{
+			name: "falls back to a separator when offsets are missing",
+			chunks: []types.DocumentChunk{
+				{Content: "one", Source: "d"},
+				{Content: "two", Source: "d"},
+			},
+			expected: expected{context: "one\n\ntwo"},
+		},
+		{
+			name: "never merges across a source boundary",
+			chunks: []types.DocumentChunk{
+				{Content: "doc a part", Source: "a", StartOffset: 0, EndOffset: 10},
+				{Content: "doc b part", Source: "b", StartOffset: 0, EndOffset: 10},
+			},
+			expected: expected{context: "doc a part\n\ndoc b part"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected.context, assembleContext(tt.chunks))
+		})
+	}
+}
+
+func TestSelectWithinBudget(t *testing.T) {
+	hit := func(id string, size int) types.DocumentChunk {
+		return types.DocumentChunk{ID: id, Content: strings.Repeat("x", size)}
+	}
+
+	type input struct {
+		ordered []types.DocumentChunk
+		hits    []string
+		budget  int
+	}
+	type expected struct {
+		ids []string
+	}
+
+	ordered := []types.DocumentChunk{
+		hit("h1", 10), hit("n1", 10), hit("h2", 10), hit("n2", 10),
+	}
+
+	tests := []struct {
+		name     string
+		input    input
+		expected expected
+	}{
+		{
+			name:     "generous budget keeps every chunk",
+			input:    input{ordered: ordered, hits: []string{"h1", "h2"}, budget: 1000},
+			expected: expected{ids: []string{"h1", "n1", "h2", "n2"}},
+		},
+		{
+			name:     "tight budget drops neighbors but keeps all hits",
+			input:    input{ordered: ordered, hits: []string{"h1", "h2"}, budget: 25},
+			expected: expected{ids: []string{"h1", "h2"}},
+		},
+		{
+			name:     "hits exceeding the budget are still kept",
+			input:    input{ordered: ordered, hits: []string{"h1", "h2"}, budget: 0},
+			expected: expected{ids: []string{"h1", "h2"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hitIDs := make(map[string]bool, len(tt.input.hits))
+			for _, id := range tt.input.hits {
+				hitIDs[id] = true
+			}
+
+			selected := selectWithinBudget(tt.input.ordered, hitIDs, tt.input.budget)
+
+			ids := make([]string, len(selected))
+			for i, c := range selected {
+				ids[i] = c.ID
+			}
+			assert.Equal(t, tt.expected.ids, ids)
+		})
+	}
+}
+
 func TestTrimHistory(t *testing.T) {
 	makeHistory := func(n int) []types.Message {
 		h := make([]types.Message, n)
