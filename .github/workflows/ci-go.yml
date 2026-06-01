@@ -1,5 +1,5 @@
 # CI - run Go tests and enforce minimum coverage
-name: CI - Go tests & coverage
+name: CI - Go backend
 
 on:
   push:
