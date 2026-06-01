@@ -259,10 +259,6 @@ func TestEvalRetrieval(t *testing.T) {
 }
 
 func TestEvalNeighborExpansionRecoversCrossChunkAnswer(t *testing.T) {
-	// A document whose question keywords concentrate in several dense chunks,
-	// while the answer detail sits in a neutral chunk adjacent to one of them.
-	// Plain top-k retrieval ranks the answer chunk below k and misses it;
-	// neighbor expansion pulls it in via the adjacent dense hit.
 	densePara := func() string {
 		return strings.Repeat("quantum entanglement correlation analysis. ", 14)
 	}
