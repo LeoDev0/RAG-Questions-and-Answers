@@ -23,7 +23,7 @@ const (
 type sseEvent struct {
 	Type       string                `json:"type"`
 	Sources    []types.DocumentChunk `json:"sources,omitempty"`
-	Confidence float64               `json:"confidence,omitempty"`
+	Confidence float64               `json:"confidence"`
 	Content    string                `json:"content,omitempty"`
 	Error      string                `json:"error,omitempty"`
 	Code       string                `json:"code,omitempty"`
