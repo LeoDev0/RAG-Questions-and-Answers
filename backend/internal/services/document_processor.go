@@ -12,6 +12,7 @@ import (
 	"github.com/ledongthuc/pdf"
 
 	"rag-backend/pkg/types"
+	"rag-backend/pkg/utils"
 )
 
 type DocumentProcessor struct{}
@@ -25,7 +26,7 @@ func (dp *DocumentProcessor) ProcessFile(fileHeader *multipart.FileHeader) (stri
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	content, err := io.ReadAll(file)
 	if err != nil {
@@ -52,8 +53,8 @@ func (dp *DocumentProcessor) processPDF(content []byte) (string, error) {
 		return "", fmt.Errorf("failed to create PDF reader: %w", err)
 	}
 
-	var textBuilder strings.Builder
 	numPages := pdfReader.NumPage()
+	pages := make([]string, 0, numPages)
 
 	for i := 1; i <= numPages; i++ {
 		page := pdfReader.Page(i)
@@ -66,16 +67,15 @@ func (dp *DocumentProcessor) processPDF(content []byte) (string, error) {
 			continue // Skip pages that can't be processed
 		}
 
-		textBuilder.WriteString(text)
-		textBuilder.WriteString("\n")
+		pages = append(pages, text)
 	}
 
-	text := textBuilder.String()
+	text := strings.TrimSpace(utils.StripRepeatedHeadersFooters(pages))
 	if text == "" {
 		return "", fmt.Errorf("no text could be extracted from PDF")
 	}
 
-	return strings.TrimSpace(text), nil
+	return text, nil
 }
 
 func (dp *DocumentProcessor) CreateDocument(content, fileName string) types.Document {

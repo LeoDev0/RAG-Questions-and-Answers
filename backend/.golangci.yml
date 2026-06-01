@@ -1,0 +1,8 @@
+version: "2"
+
+# Default linter set (errcheck, govet, ineffassign, staticcheck, unused) plus
+# prealloc, which flags slices that could be preallocated with a known capacity
+# (see "Go code style" in CLAUDE.md). Run locally with `make lint`.
+linters:
+  enable:
+    - prealloc

@@ -120,5 +120,5 @@ func writeSSEFrame(w io.Writer, payload sseEvent) {
 	if err != nil {
 		return
 	}
-	fmt.Fprintf(w, "data: %s\n\n", data)
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
 }

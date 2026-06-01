@@ -38,7 +38,6 @@ type RAGPipeline struct {
 	chatCompleter    ChatCompletionCreator
 	vectorStore      vectorstore.VectorStore
 	textSplitter     *utils.TextSplitter
-	mutex            sync.RWMutex
 }
 
 func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RAGPipeline {
@@ -57,7 +56,7 @@ func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RA
 }
 
 func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
-	textChunks := rp.textSplitter.SplitText(content)
+	textChunks := rp.textSplitter.SplitText(utils.Normalize(content))
 
 	var embeddings [][]float64
 	var err error
@@ -157,7 +156,7 @@ func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.Doc
 	}
 
 	stream := rp.chatCompleter.NewStreamingIter(ctx, chatCompletionParams(buildSystemPrompt(contextInfo), history, question))
-	defer stream.Close()
+	defer func() { _ = stream.Close() }()
 
 	for stream.Next() {
 		chunk := stream.Current()
