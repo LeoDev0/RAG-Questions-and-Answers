@@ -121,6 +121,21 @@ func loadDocument(t *testing.T, name string) string {
 	return string(raw)
 }
 
+func ingestGoldenDocs(t *testing.T, pipeline *RAGPipeline, cases []goldenCase) {
+	t.Helper()
+	ingested := make(map[string]bool)
+	for _, gc := range cases {
+		if ingested[gc.Document] {
+			continue
+		}
+		content := loadDocument(t, gc.Document)
+		chunks, err := pipeline.ProcessDocument(content, map[string]string{"source": gc.Document})
+		assert.NoError(t, err)
+		assert.NoError(t, pipeline.AddDocumentToVectorStore(chunks))
+		ingested[gc.Document] = true
+	}
+}
+
 func normalizeWhitespace(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
@@ -214,18 +229,7 @@ func TestEvalRetrieval(t *testing.T) {
 	embedder := &hashingEmbedder{dims: embeddingDims}
 	store := memory.NewMemoryVectorStore()
 	pipeline := newEvalPipeline(embedder, store)
-
-	ingested := make(map[string]bool)
-	for _, gc := range cases {
-		if ingested[gc.Document] {
-			continue
-		}
-		content := loadDocument(t, gc.Document)
-		chunks, err := pipeline.ProcessDocument(content, map[string]string{"source": gc.Document})
-		assert.NoError(t, err)
-		assert.NoError(t, pipeline.AddDocumentToVectorStore(chunks))
-		ingested[gc.Document] = true
-	}
+	ingestGoldenDocs(t, pipeline, cases)
 
 	ranks := make([]int, 0, len(cases))
 	for _, gc := range cases {
@@ -255,6 +259,71 @@ func TestEvalRetrieval(t *testing.T) {
 	assert.GreaterOrEqual(t, got.hitRateAt1, want.hitRateAt1)
 	assert.GreaterOrEqual(t, got.recallAtK, want.recallAtK)
 	assert.GreaterOrEqual(t, got.mrr, want.mrr)
+}
+
+func TestRetrievalThreshold(t *testing.T) {
+	type threshold struct {
+		filteredRecall    float64
+		negativeRejection float64
+	}
+	// Calibrated just below the current baseline so the gate fails on
+	// regressions; raise them as retrieval improves (same ratchet philosophy as
+	// TestEvalRetrieval). filteredRecall is lower than the unfiltered recall@K
+	// because the deterministic bag-of-words embedder scores hard paraphrases
+	// well below similarityThreshold; the production text-embedding-3-small model
+	// separates paraphrases far better, so this floor is a regression guard, not
+	// a quality target. negativeRejection must stay perfect: clearly off-domain
+	// questions must never leak chunks into the prompt.
+	want := threshold{filteredRecall: 0.30, negativeRejection: 1.0}
+
+	cases := loadGoldenSet(t)
+	assert.NotEmpty(t, cases)
+
+	embedder := &hashingEmbedder{dims: embeddingDims}
+	store := memory.NewMemoryVectorStore()
+	pipeline := newEvalPipeline(embedder, store)
+	ingestGoldenDocs(t, pipeline, cases)
+
+	// Off-domain questions whose answers live in none of the golden documents
+	// (Go, photosynthesis, HTTP caching, the water cycle, TCP/IP, the French
+	// Revolution, embeddings). similarityThreshold should filter these to nothing.
+	negatives := []string{
+		"What is the capital city of Australia?",
+		"How do you bake chocolate chip cookies from scratch?",
+		"What are the official rules of basketball?",
+		"Which composer wrote the Moonlight Sonata?",
+	}
+
+	var positiveHits int
+	for _, gc := range cases {
+		_, contextInfo, confidence, err := pipeline.retrieveContext(gc.Question)
+		assert.NoError(t, err)
+		needle := normalizeWhitespace(strings.ToLower(gc.ExpectedSource))
+		if strings.Contains(normalizeWhitespace(strings.ToLower(contextInfo)), needle) {
+			positiveHits++
+			assert.Greaterf(t, confidence, 0.0, "retained positive %s should have non-zero confidence", gc.ID)
+		}
+	}
+
+	var negativesRejected int
+	for _, q := range negatives {
+		docs, _, confidence, err := pipeline.retrieveContext(q)
+		assert.NoError(t, err)
+		if len(docs) == 0 {
+			negativesRejected++
+			assert.Equalf(t, 0.0, confidence, "filtered question should have zero confidence: %q", q)
+		}
+	}
+
+	got := threshold{
+		filteredRecall:    float64(positiveHits) / float64(len(cases)),
+		negativeRejection: float64(negativesRejected) / float64(len(negatives)),
+	}
+	t.Logf("threshold eval (similarityThreshold=%.2f) over %d positives / %d negatives: filtered_recall=%.3f negative_rejection=%.3f",
+		similarityThreshold, len(cases), len(negatives), got.filteredRecall, got.negativeRejection)
+
+	assert.GreaterOrEqual(t, got.filteredRecall, want.filteredRecall)
+	assert.GreaterOrEqual(t, got.negativeRejection, want.negativeRejection)
 }
 
 func TestEvalMetrics(t *testing.T) {
