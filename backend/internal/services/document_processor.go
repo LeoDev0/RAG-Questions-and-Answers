@@ -54,7 +54,7 @@ func (dp *DocumentProcessor) processPDF(content []byte) (string, error) {
 	}
 
 	numPages := pdfReader.NumPage()
-	var pages []string
+	pages := make([]string, 0, numPages)
 
 	for i := 1; i <= numPages; i++ {
 		page := pdfReader.Page(i)
