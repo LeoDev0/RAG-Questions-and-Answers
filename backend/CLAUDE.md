@@ -1,5 +1,15 @@
 # CLAUDE.md
 
+## Go code style
+
+- Preallocate slice capacity with `make([]T, 0, n)` when the final length is
+  known cheaply up front (e.g. iterating a collection of known size), to avoid
+  repeated `append` reallocations. Use capacity `0, n` — not length `n` — so you
+  don't leave zero-value elements at the front of the slice. Skip it when the
+  count isn't known without extra work; a forced pre-count loop or a wrong guess
+  is worse than letting `append` grow. The `prealloc` linter (enabled in
+  `.golangci.yml`) flags the obvious cases in CI.
+
 ## Testing conventions
 
 - Always use table-driven (parameterized) tests when a function has multiple scenarios.
