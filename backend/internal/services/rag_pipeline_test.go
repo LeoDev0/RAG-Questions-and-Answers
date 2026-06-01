@@ -235,7 +235,7 @@ func TestGenerateEmbeddingParallel(t *testing.T) {
 				embeddings := make([][]float64, len(batchTexts))
 				for i, txt := range batchTexts {
 					var idx int
-					fmt.Sscanf(txt, "text-%d", &idx)
+					_, _ = fmt.Sscanf(txt, "text-%d", &idx)
 					embeddings[i] = []float64{float64(idx)}
 				}
 				return makeEmbeddingResponse(embeddings), nil

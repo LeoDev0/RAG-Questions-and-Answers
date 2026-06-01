@@ -26,7 +26,7 @@ func (dp *DocumentProcessor) ProcessFile(fileHeader *multipart.FileHeader) (stri
 	if err != nil {
 		return "", fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	content, err := io.ReadAll(file)
 	if err != nil {

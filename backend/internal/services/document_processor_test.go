@@ -68,7 +68,7 @@ func makeFileHeader(t *testing.T, filename, contentType string, content []byte) 
 	if _, err = part.Write(content); err != nil {
 		t.Fatalf("makeFileHeader: write content: %v", err)
 	}
-	writer.Close()
+	_ = writer.Close()
 
 	reader := multipart.NewReader(body, writer.Boundary())
 	form, err := reader.ReadForm(10 << 20)

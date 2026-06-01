@@ -195,7 +195,7 @@ func TestHandleQueryStream_SuccessPath(t *testing.T) {
 			client := &http.Client{Timeout: 2 * time.Second}
 			resp, err := client.Do(req)
 			assert.NoError(t, err)
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 
 			assert.Equal(t, http.StatusOK, resp.StatusCode)
 			assert.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
