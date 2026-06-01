@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"rag-backend/internal/repositories/vectorstore"
+	"sort"
 	"strings"
 	"sync"
 
@@ -22,6 +23,10 @@ const (
 	maxContentChunks  = 4
 	maxBatchSize      = 40
 	maxConcurrency    = 5
+	// neighborRadius controls how many adjacent chunks (per side, same source)
+	// are pulled in around each search hit to give the LLM fuller surrounding
+	// context than the matched fragment alone.
+	neighborRadius = 1
 	// maxHistoryTurns bounds how many prior turns are sent to the LLM as
 	// conversational context. retrievalRewriteWindow bounds how many recent
 	// user turns are folded into the embedding query for vector search.
@@ -56,7 +61,8 @@ func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RA
 }
 
 func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
-	textChunks := rp.textSplitter.SplitText(utils.Normalize(content))
+	normalized := utils.Normalize(content)
+	textChunks := rp.textSplitter.SplitText(normalized)
 
 	var embeddings [][]float64
 	var err error
@@ -73,14 +79,28 @@ func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]strin
 		return nil, fmt.Errorf("failed to generate embeddings: %w", err)
 	}
 
+	source := metadata["source"]
 	chunks := make([]types.DocumentChunk, len(textChunks))
+	cursor := 0
 	for i, textChunk := range textChunks {
-		chunks[i] = types.DocumentChunk{
-			ID:        fmt.Sprintf("%s-chunk-%d", metadata["source"], i),
-			Content:   textChunk,
-			Embedding: embeddings[i],
-			Metadata:  metadata,
+		start := cursor
+		if idx := strings.Index(normalized[cursor:], textChunk); idx >= 0 {
+			start = cursor + idx
 		}
+		end := start + len(textChunk)
+		chunks[i] = types.DocumentChunk{
+			ID:          fmt.Sprintf("%s-chunk-%d", source, i),
+			Content:     textChunk,
+			Embedding:   embeddings[i],
+			Metadata:    metadata,
+			Source:      source,
+			ChunkIndex:  i,
+			StartOffset: start,
+			EndOffset:   end,
+		}
+		// Advance past this chunk's start so the next search is monotonic and
+		// duplicate text downstream still resolves to the correct occurrence.
+		cursor = start + 1
 	}
 
 	return chunks, nil
@@ -126,17 +146,54 @@ func (rp *RAGPipeline) retrieveContext(question string) ([]types.DocumentChunk, 
 		return nil, "", fmt.Errorf("failed to search vector store: %w", err)
 	}
 
-	var contextBuilder strings.Builder
 	relevantDocs := make([]types.DocumentChunk, len(scoredChunks))
 	for i, scored := range scoredChunks {
-		if i > 0 {
-			contextBuilder.WriteString("\n\n")
-		}
-		contextBuilder.WriteString(scored.Chunk.Content)
 		relevantDocs[i] = scored.Chunk
 	}
 
-	return relevantDocs, contextBuilder.String(), nil
+	return relevantDocs, rp.expandContext(relevantDocs), nil
+}
+
+// expandContext widens each search hit with its adjacent chunks (same source,
+// within neighborRadius), dedupes by ID, and assembles the result in document
+// order so the LLM sees fuller surrounding context. The hits themselves remain
+// the response's attributed sources; only this context string grows.
+func (rp *RAGPipeline) expandContext(hits []types.DocumentChunk) string {
+	byID := make(map[string]types.DocumentChunk, len(hits))
+	for _, hit := range hits {
+		byID[hit.ID] = hit
+		neighbors, err := rp.vectorStore.Neighbors(hit.Source, hit.ChunkIndex, neighborRadius)
+		if err != nil {
+			// Degrade gracefully: keep the hit, skip its neighbors.
+			continue
+		}
+		for _, neighbor := range neighbors {
+			byID[neighbor.ID] = neighbor
+		}
+	}
+
+	expanded := make([]types.DocumentChunk, 0, len(byID))
+	for _, chunk := range byID {
+		expanded = append(expanded, chunk)
+	}
+	sort.Slice(expanded, func(i, j int) bool {
+		if expanded[i].Source != expanded[j].Source {
+			return expanded[i].Source < expanded[j].Source
+		}
+		if expanded[i].ChunkIndex != expanded[j].ChunkIndex {
+			return expanded[i].ChunkIndex < expanded[j].ChunkIndex
+		}
+		return expanded[i].ID < expanded[j].ID
+	})
+
+	var contextBuilder strings.Builder
+	for i, chunk := range expanded {
+		if i > 0 {
+			contextBuilder.WriteString("\n\n")
+		}
+		contextBuilder.WriteString(chunk.Content)
+	}
+	return contextBuilder.String()
 }
 
 func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.DocumentChunk, contextInfo string, history []types.Message, question string, events chan<- StreamEvent) {

@@ -18,6 +18,7 @@ import (
 	"rag-backend/internal/config"
 	"rag-backend/internal/repositories/vectorstore"
 	"rag-backend/internal/repositories/vectorstore/memory"
+	"rag-backend/pkg/types"
 	"rag-backend/pkg/utils"
 )
 
@@ -255,6 +256,56 @@ func TestEvalRetrieval(t *testing.T) {
 	assert.GreaterOrEqual(t, got.hitRateAt1, want.hitRateAt1)
 	assert.GreaterOrEqual(t, got.recallAtK, want.recallAtK)
 	assert.GreaterOrEqual(t, got.mrr, want.mrr)
+}
+
+func TestEvalNeighborExpansionRecoversCrossChunkAnswer(t *testing.T) {
+	// A document whose question keywords concentrate in several dense chunks,
+	// while the answer detail sits in a neutral chunk adjacent to one of them.
+	// Plain top-k retrieval ranks the answer chunk below k and misses it;
+	// neighbor expansion pulls it in via the adjacent dense hit.
+	densePara := func() string {
+		return strings.Repeat("quantum entanglement correlation analysis. ", 14)
+	}
+	answerNeedle := "zero point eight seven"
+	answerPara := "The recorded measurement value equaled " + answerNeedle + " units. " +
+		strings.Repeat("laboratory staff logged ambient temperature during sessions. ", 9)
+
+	paragraphs := []string{
+		densePara(),
+		densePara(),
+		densePara(),
+		answerPara,
+		densePara(),
+		densePara(),
+	}
+	content := strings.Join(paragraphs, "\n\n")
+
+	embedder := &hashingEmbedder{dims: embeddingDims}
+	store := memory.NewMemoryVectorStore()
+	pipeline := newEvalPipeline(embedder, store)
+
+	chunks, err := pipeline.ProcessDocument(content, map[string]string{"source": "physics"})
+	assert.NoError(t, err)
+	assert.NoError(t, pipeline.AddDocumentToVectorStore(chunks))
+	assert.Greater(t, len(chunks), maxContentChunks, "need more chunks than k so the answer chunk falls outside top-k")
+
+	scored, err := store.Search(embedText("quantum entanglement correlation", embeddingDims), maxContentChunks)
+	assert.NoError(t, err)
+
+	hits := make([]types.DocumentChunk, len(scored))
+	var bareContext strings.Builder
+	for i, sc := range scored {
+		hits[i] = sc.Chunk
+		bareContext.WriteString(sc.Chunk.Content)
+		bareContext.WriteString("\n\n")
+	}
+
+	expanded := pipeline.expandContext(hits)
+
+	assert.NotContains(t, bareContext.String(), answerNeedle,
+		"baseline top-k retrieval should miss the cross-chunk answer detail")
+	assert.Contains(t, expanded, answerNeedle,
+		"neighbor expansion should recover the adjacent answer chunk")
 }
 
 func TestEvalMetrics(t *testing.T) {

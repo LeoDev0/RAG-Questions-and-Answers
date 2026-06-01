@@ -523,6 +523,8 @@ func TestProcessDocument(t *testing.T) {
 					expectedID := fmt.Sprintf("%s-chunk-%d", tt.metadata["source"], i)
 					assert.Equal(t, expectedID, chunk.ID, "chunk %d should have correct ID", i)
 					assert.Equal(t, tt.metadata, chunk.Metadata)
+					assert.Equal(t, tt.metadata["source"], chunk.Source, "chunk %d should carry source", i)
+					assert.Equal(t, i, chunk.ChunkIndex, "chunk %d should be indexed in order", i)
 					assert.NotNil(t, chunk.Embedding)
 				}
 			}
@@ -553,6 +555,68 @@ func TestProcessDocument_LargeDocumentUsesParallelPath(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Greater(t, len(chunks), maxBatchSize, "should have more than maxBatchSize chunks to trigger parallel path")
 	assert.Greater(t, int(callCount.Load()), 1, "parallel path should call embedding API multiple times")
+}
+
+func TestProcessDocument_CharOffsetsLocateChunksInNormalizedText(t *testing.T) {
+	type expected struct {
+		multiChunk bool
+	}
+
+	tests := []struct {
+		name     string
+		content  string
+		expected expected
+	}{
+		{
+			name:     "single chunk spans its trimmed content",
+			content:  "hello world",
+			expected: expected{multiChunk: false},
+		},
+		{
+			name:     "multi chunk offsets stay monotonic and locate content",
+			content:  strings.Repeat("alpha beta gamma delta. ", 200),
+			expected: expected{multiChunk: true},
+		},
+		{
+			name:     "unicode content keeps valid byte offsets",
+			content:  strings.Repeat("これはテストです。日本語の文章を分割します。", 80),
+			expected: expected{multiChunk: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ec := &mockEmbeddingCreator{
+				newFunc: func(_ context.Context, body openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
+					n := len(body.Input.OfArrayOfStrings)
+					embeddings := make([][]float64, n)
+					for i := range embeddings {
+						embeddings[i] = []float64{0.1}
+					}
+					return makeEmbeddingResponse(embeddings), nil
+				},
+			}
+			pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
+
+			normalized := utils.Normalize(tt.content)
+			chunks, err := pipeline.ProcessDocument(tt.content, map[string]string{"source": "doc"})
+			assert.NoError(t, err)
+
+			if tt.expected.multiChunk {
+				assert.Greater(t, len(chunks), 1)
+			}
+
+			prevStart := -1
+			for i, chunk := range chunks {
+				assert.GreaterOrEqual(t, chunk.StartOffset, 0)
+				assert.LessOrEqual(t, chunk.EndOffset, len(normalized))
+				assert.Equal(t, len(chunk.Content), chunk.EndOffset-chunk.StartOffset)
+				assert.Equal(t, chunk.Content, normalized[chunk.StartOffset:chunk.EndOffset], "chunk %d offsets must locate its content", i)
+				assert.Greater(t, chunk.StartOffset, prevStart, "chunk %d start must be strictly monotonic", i)
+				prevStart = chunk.StartOffset
+			}
+		})
+	}
 }
 
 func TestAddDocumentToVectorStore(t *testing.T) {
@@ -794,8 +858,8 @@ func TestQuery_ContextBuiltFromMultipleSources(t *testing.T) {
 	vs := &vectorstore.MockVectorStore{
 		SearchFunc: func(_ []float64, _ int) ([]types.ScoredChunk, error) {
 			return []types.ScoredChunk{
-				{Chunk: types.DocumentChunk{Content: "First chunk"}, Score: 0.9},
-				{Chunk: types.DocumentChunk{Content: "Second chunk"}, Score: 0.8},
+				{Chunk: types.DocumentChunk{ID: "doc-chunk-0", Source: "doc", ChunkIndex: 0, Content: "First chunk"}, Score: 0.9},
+				{Chunk: types.DocumentChunk{ID: "doc-chunk-1", Source: "doc", ChunkIndex: 1, Content: "Second chunk"}, Score: 0.8},
 			}, nil
 		},
 	}
@@ -805,6 +869,119 @@ func TestQuery_ContextBuiltFromMultipleSources(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Contains(t, capturedPrompt, "First chunk\n\nSecond chunk")
+}
+
+func TestQuery_NeighborsExpandedIntoContextInDocumentOrder(t *testing.T) {
+	ec := &mockEmbeddingCreator{
+		newFunc: func(_ context.Context, _ openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
+			return makeEmbeddingResponse([][]float64{{0.1}}), nil
+		},
+	}
+
+	var capturedPrompt string
+	cc := &mockChatCompleter{
+		newFunc: func(_ context.Context, body openai.ChatCompletionNewParams, _ ...option.RequestOption) (*openai.ChatCompletion, error) {
+			if len(body.Messages) > 0 {
+				capturedPrompt = body.Messages[0].OfSystem.Content.OfString.Value
+			}
+			return makeChatCompletion("answer"), nil
+		},
+	}
+
+	doc := []types.DocumentChunk{
+		{ID: "doc-chunk-0", Source: "doc", ChunkIndex: 0, Content: "chunk zero"},
+		{ID: "doc-chunk-1", Source: "doc", ChunkIndex: 1, Content: "chunk one"},
+		{ID: "doc-chunk-2", Source: "doc", ChunkIndex: 2, Content: "chunk two"},
+		{ID: "doc-chunk-3", Source: "doc", ChunkIndex: 3, Content: "chunk three"},
+	}
+	neighborsOf := func(index, radius int) []types.DocumentChunk {
+		lo, hi := index-radius, index+radius
+		out := make([]types.DocumentChunk, 0, len(doc))
+		for _, c := range doc {
+			if c.ChunkIndex >= lo && c.ChunkIndex <= hi {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+
+	vs := &vectorstore.MockVectorStore{
+		SearchFunc: func(_ []float64, _ int) ([]types.ScoredChunk, error) {
+			return []types.ScoredChunk{{Chunk: doc[2], Score: 0.9}}, nil
+		},
+		NeighborsFunc: func(source string, index, radius int) ([]types.DocumentChunk, error) {
+			assert.Equal(t, "doc", source)
+			return neighborsOf(index, radius), nil
+		},
+	}
+
+	pipeline := newTestPipeline(ec, cc, vs)
+	result, err := pipeline.Query("test question", nil)
+
+	assert.NoError(t, err)
+	assert.Contains(t, capturedPrompt, "chunk one\n\nchunk two\n\nchunk three")
+	assert.NotContains(t, capturedPrompt, "chunk zero")
+	assert.Len(t, result.Sources, 1, "sources stay the original hits, not the expanded neighbors")
+	assert.Equal(t, "doc-chunk-2", result.Sources[0].ID)
+}
+
+func TestQuery_OverlappingNeighborWindowsDedupedAndDocumentsNotInterleaved(t *testing.T) {
+	ec := &mockEmbeddingCreator{
+		newFunc: func(_ context.Context, _ openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
+			return makeEmbeddingResponse([][]float64{{0.1}}), nil
+		},
+	}
+
+	var capturedPrompt string
+	cc := &mockChatCompleter{
+		newFunc: func(_ context.Context, body openai.ChatCompletionNewParams, _ ...option.RequestOption) (*openai.ChatCompletion, error) {
+			if len(body.Messages) > 0 {
+				capturedPrompt = body.Messages[0].OfSystem.Content.OfString.Value
+			}
+			return makeChatCompletion("answer"), nil
+		},
+	}
+
+	chunks := map[string][]types.DocumentChunk{
+		"a": {
+			{ID: "a-chunk-0", Source: "a", ChunkIndex: 0, Content: "a0"},
+			{ID: "a-chunk-1", Source: "a", ChunkIndex: 1, Content: "a1"},
+			{ID: "a-chunk-2", Source: "a", ChunkIndex: 2, Content: "a2"},
+		},
+		"b": {
+			{ID: "b-chunk-0", Source: "b", ChunkIndex: 0, Content: "b0"},
+			{ID: "b-chunk-1", Source: "b", ChunkIndex: 1, Content: "b1"},
+		},
+	}
+
+	vs := &vectorstore.MockVectorStore{
+		SearchFunc: func(_ []float64, _ int) ([]types.ScoredChunk, error) {
+			return []types.ScoredChunk{
+				{Chunk: chunks["a"][0], Score: 0.9},
+				{Chunk: chunks["a"][2], Score: 0.8},
+				{Chunk: chunks["b"][1], Score: 0.7},
+			}, nil
+		},
+		NeighborsFunc: func(source string, index, radius int) ([]types.DocumentChunk, error) {
+			lo, hi := index-radius, index+radius
+			out := make([]types.DocumentChunk, 0, len(chunks[source]))
+			for _, c := range chunks[source] {
+				if c.ChunkIndex >= lo && c.ChunkIndex <= hi {
+					out = append(out, c)
+				}
+			}
+			return out, nil
+		},
+	}
+
+	pipeline := newTestPipeline(ec, cc, vs)
+	_, err := pipeline.Query("test question", nil)
+
+	assert.NoError(t, err)
+	// Hits a0 and a2 both pull a1 as a neighbor; it must appear exactly once,
+	// and each document's chunks stay contiguous and in order.
+	assert.Contains(t, capturedPrompt, "a0\n\na1\n\na2\n\nb0\n\nb1")
+	assert.Equal(t, 1, strings.Count(capturedPrompt, "a1"))
 }
 
 func TestTrimHistory(t *testing.T) {
