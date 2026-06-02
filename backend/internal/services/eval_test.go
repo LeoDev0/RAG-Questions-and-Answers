@@ -37,7 +37,7 @@ func (e *hashingEmbedder) New(_ context.Context, body openai.EmbeddingNewParams,
 
 	data := make([]openai.Embedding, len(texts))
 	for i, text := range texts {
-		data[i] = openai.Embedding{Embedding: embedText(text, e.dims)}
+		data[i] = openai.Embedding{Index: int64(i), Embedding: embedText(text, e.dims)}
 	}
 	return &openai.CreateEmbeddingResponse{Data: data}, nil
 }

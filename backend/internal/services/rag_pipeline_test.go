@@ -32,7 +32,7 @@ func newTestPipeline(ec EmbeddingCreator, cc ChatCompletionCreator, vs *vectorst
 func makeEmbeddingResponse(embeddings [][]float64) *openai.CreateEmbeddingResponse {
 	data := make([]openai.Embedding, len(embeddings))
 	for i, emb := range embeddings {
-		data[i] = openai.Embedding{Embedding: emb}
+		data[i] = openai.Embedding{Index: int64(i), Embedding: emb}
 	}
 	return &openai.CreateEmbeddingResponse{Data: data}
 }
@@ -193,6 +193,33 @@ func TestGenerateEmbeddingBatch(t *testing.T) {
 			},
 			expected: expected{
 				err: "expected 2 embeddings, got 1",
+			},
+		},
+		{
+			name:  "reorders out-of-order response by Index",
+			texts: []string{"a", "b", "c"},
+			mock: mock{
+				response: &openai.CreateEmbeddingResponse{Data: []openai.Embedding{
+					{Index: 2, Embedding: []float64{0.3}},
+					{Index: 0, Embedding: []float64{0.1}},
+					{Index: 1, Embedding: []float64{0.2}},
+				}},
+			},
+			expected: expected{
+				result: [][]float64{{0.1}, {0.2}, {0.3}},
+			},
+		},
+		{
+			name:  "returns error on out-of-range index",
+			texts: []string{"a", "b"},
+			mock: mock{
+				response: &openai.CreateEmbeddingResponse{Data: []openai.Embedding{
+					{Index: 0, Embedding: []float64{0.1}},
+					{Index: 5, Embedding: []float64{0.2}},
+				}},
+			},
+			expected: expected{
+				err: "embedding index 5 out of range",
 			},
 		},
 	}

@@ -239,8 +239,11 @@ func (rp *RAGPipeline) generateEmbeddingBatch(texts []string) ([][]float64, erro
 	}
 
 	embeddings := make([][]float64, len(embedding.Data))
-	for i, embData := range embedding.Data {
-		embeddings[i] = embData.Embedding
+	for _, embData := range embedding.Data {
+		if embData.Index < 0 || embData.Index >= int64(len(embeddings)) {
+			return nil, fmt.Errorf("embedding index %d out of range for %d texts", embData.Index, len(texts))
+		}
+		embeddings[embData.Index] = embData.Embedding
 	}
 
 	return embeddings, nil
