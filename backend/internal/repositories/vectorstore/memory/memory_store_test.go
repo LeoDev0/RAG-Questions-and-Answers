@@ -14,6 +14,23 @@ func chunk(id string, embedding []float64) types.DocumentChunk {
 	return types.DocumentChunk{ID: id, Embedding: embedding}
 }
 
+func sourcedChunk(source string, index int) types.DocumentChunk {
+	return types.DocumentChunk{
+		ID:         source + "-chunk-" + string(rune('0'+index)),
+		Source:     source,
+		ChunkIndex: index,
+		Embedding:  []float64{1, 0, 0},
+	}
+}
+
+func neighborIDs(chunks []types.DocumentChunk) []string {
+	ids := make([]string, len(chunks))
+	for i, c := range chunks {
+		ids[i] = c.ID
+	}
+	return ids
+}
+
 func searchedIDs(scored []types.ScoredChunk) []string {
 	ids := make([]string, len(scored))
 	for i, s := range scored {
@@ -118,6 +135,75 @@ func TestMemoryVectorStoreSearch(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, []string{"identical", "similar", "orthogonal"}, searchedIDs(result))
 	})
+}
+
+func TestMemoryVectorStoreNeighbors(t *testing.T) {
+	type input struct {
+		source string
+		index  int
+		radius int
+	}
+	type expected struct {
+		ids []string
+	}
+
+	tests := []struct {
+		name     string
+		input    input
+		expected expected
+	}{
+		{
+			name:     "returns the window around a middle chunk",
+			input:    input{source: "doc", index: 2, radius: 1},
+			expected: expected{ids: []string{"doc-chunk-1", "doc-chunk-2", "doc-chunk-3"}},
+		},
+		{
+			name:     "clamps at the start without negative indices",
+			input:    input{source: "doc", index: 0, radius: 1},
+			expected: expected{ids: []string{"doc-chunk-0", "doc-chunk-1"}},
+		},
+		{
+			name:     "clamps at the last chunk",
+			input:    input{source: "doc", index: 4, radius: 1},
+			expected: expected{ids: []string{"doc-chunk-3", "doc-chunk-4"}},
+		},
+		{
+			name:     "radius zero returns only the center",
+			input:    input{source: "doc", index: 2, radius: 0},
+			expected: expected{ids: []string{"doc-chunk-2"}},
+		},
+		{
+			name:     "radius beyond the document returns all of its chunks",
+			input:    input{source: "doc", index: 2, radius: 99},
+			expected: expected{ids: []string{"doc-chunk-0", "doc-chunk-1", "doc-chunk-2", "doc-chunk-3", "doc-chunk-4"}},
+		},
+		{
+			name:     "unknown source returns nothing",
+			input:    input{source: "missing", index: 0, radius: 2},
+			expected: expected{ids: []string{}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := NewMemoryVectorStore()
+			doc := make([]types.DocumentChunk, 0, 5)
+			for i := 0; i < 5; i++ {
+				doc = append(doc, sourcedChunk("doc", i))
+			}
+			other := []types.DocumentChunk{sourcedChunk("other", 1), sourcedChunk("other", 2)}
+			assert.NoError(t, store.Store(doc))
+			assert.NoError(t, store.Store(other))
+
+			result, err := store.Neighbors(tt.input.source, tt.input.index, tt.input.radius)
+
+			assert.NoError(t, err)
+			assert.ElementsMatch(t, tt.expected.ids, neighborIDs(result))
+			for _, c := range result {
+				assert.Equal(t, tt.input.source, c.Source, "neighbors must never cross document boundaries")
+			}
+		})
+	}
 }
 
 func TestMemoryVectorStoreConcurrentAccess(t *testing.T) {

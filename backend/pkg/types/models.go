@@ -11,10 +11,14 @@ type Document struct {
 }
 
 type DocumentChunk struct {
-	ID        string            `json:"id"`
-	Content   string            `json:"content"`
-	Embedding []float64         `json:"embedding,omitempty"`
-	Metadata  map[string]string `json:"metadata"`
+	ID          string            `json:"id"`
+	Content     string            `json:"content"`
+	Embedding   []float64         `json:"embedding,omitempty"`
+	Metadata    map[string]string `json:"metadata"`
+	Source      string            `json:"source"`
+	ChunkIndex  int               `json:"chunkIndex"`
+	StartOffset int               `json:"startOffset"`
+	EndOffset   int               `json:"endOffset"`
 }
 
 type RAGResponse struct {
