@@ -216,13 +216,7 @@ func (rp *RAGPipeline) generateEmbedding(text string) ([]float64, error) {
 		return nil, fmt.Errorf("no embedding returned")
 	}
 
-	// TODO Handle different embedding types if needed so I dont have to make this conversion
-	embedding32 := embedding.Data[0].Embedding
-	embedding64 := make([]float64, len(embedding32))
-	for i, v := range embedding32 {
-		embedding64[i] = float64(v)
-	}
-	return embedding64, nil
+	return embedding.Data[0].Embedding, nil
 }
 
 func (rp *RAGPipeline) generateEmbeddingBatch(texts []string) ([][]float64, error) {
@@ -244,15 +238,9 @@ func (rp *RAGPipeline) generateEmbeddingBatch(texts []string) ([][]float64, erro
 		return nil, fmt.Errorf("expected %d embeddings, got %d", len(texts), len(embedding.Data))
 	}
 
-	// TODO Handle different embedding types if needed so I dont have to make this conversion
 	embeddings := make([][]float64, len(embedding.Data))
 	for i, embData := range embedding.Data {
-		embedding32 := embData.Embedding
-		embedding64 := make([]float64, len(embedding32))
-		for j, v := range embedding32 {
-			embedding64[j] = float64(v)
-		}
-		embeddings[i] = embedding64
+		embeddings[i] = embData.Embedding
 	}
 
 	return embeddings, nil
