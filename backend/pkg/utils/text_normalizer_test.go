@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"rag-backend/pkg/types"
 )
 
 func TestNormalize(t *testing.T) {
@@ -174,7 +176,15 @@ func TestStripRepeatedHeadersFooters(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, StripRepeatedHeadersFooters(tt.pages))
+			input := make([]types.Page, len(tt.pages))
+			for i, text := range tt.pages {
+				input[i] = types.Page{Number: i + 1, Text: text}
+			}
+			want := make([]types.Page, len(tt.expected))
+			for i, text := range tt.expected {
+				want[i] = types.Page{Number: i + 1, Text: text}
+			}
+			assert.Equal(t, want, StripRepeatedHeadersFooters(input))
 		})
 	}
 }

@@ -84,16 +84,12 @@ func (dp *DocumentProcessor) processPDF(content []byte) (types.ProcessedDocument
 // exact in the final normalized coordinate space: each span's [Start:End]
 // slice of NormalizedText is precisely that page's normalized text.
 func buildProcessedDocument(pages []types.Page) types.ProcessedDocument {
-	texts := make([]string, 0, len(pages))
-	for _, page := range pages {
-		texts = append(texts, page.Text)
-	}
-	cleaned := utils.StripRepeatedHeadersFooters(texts)
+	cleaned := utils.StripRepeatedHeadersFooters(pages)
 
 	spans := make([]types.PageSpan, 0, len(cleaned))
 	var b strings.Builder
-	for i, page := range cleaned {
-		normalized := utils.Normalize(page)
+	for _, page := range cleaned {
+		normalized := utils.Normalize(page.Text)
 		if normalized == "" {
 			continue
 		}
@@ -102,7 +98,7 @@ func buildProcessedDocument(pages []types.Page) types.ProcessedDocument {
 		}
 		start := b.Len()
 		b.WriteString(normalized)
-		spans = append(spans, types.PageSpan{Page: pages[i].Number, Start: start, End: b.Len()})
+		spans = append(spans, types.PageSpan{Page: page.Number, Start: start, End: b.Len()})
 	}
 
 	return types.ProcessedDocument{NormalizedText: b.String(), PageSpans: spans}

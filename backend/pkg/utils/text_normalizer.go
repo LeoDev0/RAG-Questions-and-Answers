@@ -3,6 +3,8 @@ package utils
 import (
 	"regexp"
 	"strings"
+
+	"rag-backend/pkg/types"
 )
 
 const (
@@ -41,10 +43,11 @@ func Normalize(text string) string {
 }
 
 // StripRepeatedHeadersFooters removes page headers and footers that repeat
-// across the per-page text of a PDF, returning the surviving per-page text in
-// the same order so callers can keep page boundaries. Detection is skipped for
-// documents with too few pages to provide a reliable signal.
-func StripRepeatedHeadersFooters(pages []string) []string {
+// across the per-page text of a PDF, returning each page with its text cleaned
+// and its Number preserved so page attribution travels with the text rather
+// than relying on positional alignment. Detection is skipped for documents with
+// too few pages to provide a reliable signal.
+func StripRepeatedHeadersFooters(pages []types.Page) []types.Page {
 	if len(pages) < minPagesForDetection {
 		return pages
 	}
@@ -54,7 +57,7 @@ func StripRepeatedHeadersFooters(pages []string) []string {
 	footerCounts := map[string]int{}
 
 	for i, page := range pages {
-		lines := splitLines(page)
+		lines := splitLines(page.Text)
 		pageLines[i] = lines
 
 		for _, line := range topLines(lines, scanLines) {
@@ -77,11 +80,11 @@ func StripRepeatedHeadersFooters(pages []string) []string {
 	headers := frequentSignatures(headerCounts, threshold)
 	footers := frequentSignatures(footerCounts, threshold)
 
-	cleaned := make([]string, 0, len(pages))
-	for _, lines := range pageLines {
+	cleaned := make([]types.Page, 0, len(pages))
+	for i, lines := range pageLines {
 		lines = trimLeadingMatches(lines, headers)
 		lines = trimTrailingMatches(lines, footers)
-		cleaned = append(cleaned, strings.Join(lines, "\n"))
+		cleaned = append(cleaned, types.Page{Number: pages[i].Number, Text: strings.Join(lines, "\n")})
 	}
 
 	return cleaned
