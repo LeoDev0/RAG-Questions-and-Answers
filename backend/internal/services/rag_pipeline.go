@@ -23,9 +23,9 @@ const (
 	maxContentChunks  = 4
 	maxBatchSize      = 40
 	maxConcurrency    = 5
-	// neighborRadius controls how many adjacent chunks (per side, same source)
-	// are pulled in around each search hit to give the LLM fuller surrounding
-	// context than the matched fragment alone.
+	// neighborRadius controls how many adjacent chunks are pulled in around
+	// each search hit to give the LLM fuller surrounding context than the
+	// matched fragment alone.
 	neighborRadius = 1
 	// maxContextChars caps the assembled context size (approx. bytes). Hits are
 	// always kept; neighbors fill the remaining budget. The default is generous
