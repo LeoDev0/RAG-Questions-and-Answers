@@ -27,10 +27,9 @@ const (
 	// each search hit to give the LLM fuller surrounding context than the
 	// matched fragment alone.
 	neighborRadius = 1
-	// maxContextChars caps the assembled context size (approx. bytes). Hits are
-	// always kept; neighbors fill the remaining budget. The default is generous
-	// enough that the k=4 x radius=1 path never truncates, so it only bites if
-	// neighborRadius is raised.
+	// maxContextChars bounds the assembled context (in bytes) sent to the LLM as
+	// a safety rail if neighborRadius grows. Search hits are always kept;
+	// neighbors are dropped first when over budget.
 	maxContextChars = 24000
 	// maxHistoryTurns bounds how many prior turns are sent to the LLM as
 	// conversational context. retrievalRewriteWindow bounds how many recent
