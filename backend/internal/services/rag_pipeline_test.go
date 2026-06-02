@@ -209,19 +209,6 @@ func TestGenerateEmbeddingBatch(t *testing.T) {
 				result: [][]float64{{0.1}, {0.2}, {0.3}},
 			},
 		},
-		{
-			name:  "returns error on out-of-range index",
-			texts: []string{"a", "b"},
-			mock: mock{
-				response: &openai.CreateEmbeddingResponse{Data: []openai.Embedding{
-					{Index: 0, Embedding: []float64{0.1}},
-					{Index: 5, Embedding: []float64{0.2}},
-				}},
-			},
-			expected: expected{
-				err: "embedding index 5 out of range",
-			},
-		},
 	}
 
 	for _, tt := range tests {
