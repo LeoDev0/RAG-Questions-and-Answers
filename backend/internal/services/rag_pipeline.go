@@ -88,11 +88,19 @@ func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]strin
 	chunks := make([]types.DocumentChunk, len(textChunks))
 	cursor := 0
 	for i, textChunk := range textChunks {
-		start := cursor
+		// Locate the chunk in the normalized text to record byte offsets that
+		// satisfy Content == normalized[StartOffset:EndOffset]. On a miss, leave
+		// the offsets zeroed so downstream context assembly falls back to its
+		// plain separator path rather than splicing on corrupt offsets.
+		start, end := 0, 0
 		if idx := strings.Index(normalized[cursor:], textChunk); idx >= 0 {
 			start = cursor + idx
+			end = start + len(textChunk)
+			// Advance past this chunk's start so the next search is monotonic
+			// and duplicate text downstream still resolves to the correct
+			// occurrence.
+			cursor = start + 1
 		}
-		end := start + len(textChunk)
 		chunks[i] = types.DocumentChunk{
 			ID:          fmt.Sprintf("%s-chunk-%d", source, i),
 			Content:     textChunk,
@@ -103,9 +111,6 @@ func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]strin
 			StartOffset: start,
 			EndOffset:   end,
 		}
-		// Advance past this chunk's start so the next search is monotonic and
-		// duplicate text downstream still resolves to the correct occurrence.
-		cursor = start + 1
 	}
 
 	return chunks, nil
