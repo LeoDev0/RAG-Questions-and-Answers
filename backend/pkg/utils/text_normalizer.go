@@ -41,12 +41,12 @@ func Normalize(text string) string {
 }
 
 // StripRepeatedHeadersFooters removes page headers and footers that repeat
-// across the per-page text of a PDF, then joins the surviving pages with blank
-// lines so page breaks become paragraph boundaries. Detection is skipped for
+// across the per-page text of a PDF, returning the surviving per-page text in
+// the same order so callers can keep page boundaries. Detection is skipped for
 // documents with too few pages to provide a reliable signal.
-func StripRepeatedHeadersFooters(pages []string) string {
+func StripRepeatedHeadersFooters(pages []string) []string {
 	if len(pages) < minPagesForDetection {
-		return strings.Join(pages, "\n\n")
+		return pages
 	}
 
 	pageLines := make([][]string, len(pages))
@@ -84,7 +84,7 @@ func StripRepeatedHeadersFooters(pages []string) string {
 		cleaned = append(cleaned, strings.Join(lines, "\n"))
 	}
 
-	return strings.Join(cleaned, "\n\n")
+	return cleaned
 }
 
 func splitLines(page string) []string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -523,7 +524,8 @@ func TestProcessDocument(t *testing.T) {
 			}
 			pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 
-			chunks, err := pipeline.ProcessDocument(tt.content, tt.metadata)
+			doc := types.ProcessedDocument{NormalizedText: utils.Normalize(tt.content)}
+			chunks, err := pipeline.ProcessDocument(doc, tt.metadata)
 
 			if tt.expected.err != "" {
 				assert.Error(t, err)
@@ -564,7 +566,8 @@ func TestProcessDocument_LargeDocumentUsesParallelPath(t *testing.T) {
 	}
 	pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 
-	chunks, err := pipeline.ProcessDocument(content, metadata)
+	doc := types.ProcessedDocument{NormalizedText: utils.Normalize(content)}
+	chunks, err := pipeline.ProcessDocument(doc, metadata)
 
 	assert.NoError(t, err)
 	assert.Greater(t, len(chunks), maxBatchSize, "should have more than maxBatchSize chunks to trigger parallel path")
@@ -613,7 +616,8 @@ func TestProcessDocument_CharOffsetsLocateChunksInNormalizedText(t *testing.T) {
 			pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
 
 			normalized := utils.Normalize(tt.content)
-			chunks, err := pipeline.ProcessDocument(tt.content, map[string]string{"source": "doc"})
+			doc := types.ProcessedDocument{NormalizedText: normalized}
+			chunks, err := pipeline.ProcessDocument(doc, map[string]string{"source": "doc"})
 			assert.NoError(t, err)
 
 			if tt.expected.multiChunk {
@@ -629,6 +633,115 @@ func TestProcessDocument_CharOffsetsLocateChunksInNormalizedText(t *testing.T) {
 				assert.Greater(t, chunk.StartOffset, prevStart, "chunk %d start must be strictly monotonic", i)
 				prevStart = chunk.StartOffset
 			}
+		})
+	}
+}
+
+func TestPageForOffset(t *testing.T) {
+	spans := []types.PageSpan{
+		{Page: 1, Start: 0, End: 10},
+		{Page: 2, Start: 12, End: 20},
+		{Page: 3, Start: 22, End: 30},
+	}
+
+	tests := []struct {
+		name     string
+		spans    []types.PageSpan
+		offset   int
+		expected int
+	}{
+		{name: "start of first page", spans: spans, offset: 0, expected: 1},
+		{name: "inside first page", spans: spans, offset: 5, expected: 1},
+		{name: "gap between pages falls to preceding page", spans: spans, offset: 11, expected: 1},
+		{name: "start of second page", spans: spans, offset: 12, expected: 2},
+		{name: "inside third page", spans: spans, offset: 25, expected: 3},
+		{name: "offset past the end maps to last page", spans: spans, offset: 100, expected: 3},
+		{name: "no spans yields zero", spans: nil, offset: 5, expected: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, pageForOffset(tt.spans, tt.offset))
+		})
+	}
+}
+
+func TestProcessDocument_AttributesPageNumbers(t *testing.T) {
+	page1 := strings.TrimSpace(strings.Repeat("alpha ", 300))
+	page2 := strings.TrimSpace(strings.Repeat("beta ", 300))
+	paginated := types.ProcessedDocument{
+		NormalizedText: page1 + "\n\n" + page2,
+		PageSpans: []types.PageSpan{
+			{Page: 1, Start: 0, End: len(page1)},
+			{Page: 2, Start: len(page1) + 2, End: len(page1) + 2 + len(page2)},
+		},
+	}
+
+	type expected struct {
+		paginated bool
+	}
+
+	tests := []struct {
+		name     string
+		doc      types.ProcessedDocument
+		expected expected
+	}{
+		{
+			name:     "paginated document stamps page on each chunk",
+			doc:      paginated,
+			expected: expected{paginated: true},
+		},
+		{
+			name:     "plain-text document leaves chunks unpaginated",
+			doc:      types.ProcessedDocument{NormalizedText: utils.Normalize("a short plain document")},
+			expected: expected{paginated: false},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ec := &mockEmbeddingCreator{
+				newFunc: func(_ context.Context, body openai.EmbeddingNewParams, _ ...option.RequestOption) (*openai.CreateEmbeddingResponse, error) {
+					n := len(body.Input.OfArrayOfStrings)
+					embeddings := make([][]float64, n)
+					for i := range embeddings {
+						embeddings[i] = []float64{0.1}
+					}
+					return makeEmbeddingResponse(embeddings), nil
+				},
+			}
+			pipeline := newTestPipeline(ec, nil, &vectorstore.MockVectorStore{})
+
+			inputMetadata := map[string]string{"source": "doc"}
+			chunks, err := pipeline.ProcessDocument(tt.doc, inputMetadata)
+			assert.NoError(t, err)
+			assert.NotEmpty(t, chunks)
+
+			_, mutated := inputMetadata["page"]
+			assert.False(t, mutated, "the shared input metadata must not be mutated")
+
+			if !tt.expected.paginated {
+				for i, chunk := range chunks {
+					assert.Equal(t, 0, chunk.Page, "chunk %d should have no page", i)
+					_, ok := chunk.Metadata["page"]
+					assert.False(t, ok, "chunk %d metadata should not carry a page", i)
+				}
+				return
+			}
+
+			assert.Greater(t, len(chunks), 1, "fixture should split into multiple chunks")
+			pagesSeen := map[int]bool{}
+			prevPage := 0
+			for i, chunk := range chunks {
+				assert.Greater(t, chunk.Page, 0, "chunk %d should be attributed to a page", i)
+				assert.Equal(t, strconv.Itoa(chunk.Page), chunk.Metadata["page"], "chunk %d metadata page must match field", i)
+				assert.GreaterOrEqual(t, chunk.Page, prevPage, "page attribution must be non-decreasing")
+				prevPage = chunk.Page
+				pagesSeen[chunk.Page] = true
+			}
+			assert.True(t, pagesSeen[1] && pagesSeen[2], "both pages should be represented across chunks")
+			assert.NotEqual(t, chunks[0].Metadata["page"], chunks[len(chunks)-1].Metadata["page"],
+				"per-chunk metadata must be independent, not a shared map")
 		})
 	}
 }

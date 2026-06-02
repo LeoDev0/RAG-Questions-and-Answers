@@ -14,12 +14,12 @@ import (
 const maxFileSize = 10 << 20 // 10mb
 
 type DocumentIngester interface {
-	ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error)
+	ProcessDocument(doc types.ProcessedDocument, metadata map[string]string) ([]types.DocumentChunk, error)
 	AddDocumentToVectorStore(chunks []types.DocumentChunk) error
 }
 
 type FileProcessor interface {
-	ProcessFile(fileHeader *multipart.FileHeader) (string, error)
+	ProcessFile(fileHeader *multipart.FileHeader) (types.ProcessedDocument, error)
 	CreateDocument(content, fileName string) types.Document
 }
 
@@ -53,7 +53,7 @@ func (h *UploadHandler) HandleUpload(c *gin.Context) {
 		return
 	}
 
-	content, err := h.documentProcessor.ProcessFile(fileHeader)
+	processed, err := h.documentProcessor.ProcessFile(fileHeader)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
 			Error:   "Failed to process document",
@@ -63,13 +63,13 @@ func (h *UploadHandler) HandleUpload(c *gin.Context) {
 		return
 	}
 
-	document := h.documentProcessor.CreateDocument(content, fileHeader.Filename)
+	document := h.documentProcessor.CreateDocument(processed.NormalizedText, fileHeader.Filename)
 
 	// Process into chunks with embeddings
 	metadata := map[string]string{
 		"source": fileHeader.Filename,
 	}
-	chunks, err := h.ragPipeline.ProcessDocument(content, metadata)
+	chunks, err := h.ragPipeline.ProcessDocument(processed, metadata)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
 			Error:   "Failed to process document chunks",
