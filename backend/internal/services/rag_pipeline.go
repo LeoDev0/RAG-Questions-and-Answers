@@ -88,17 +88,10 @@ func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]strin
 	chunks := make([]types.DocumentChunk, len(textChunks))
 	cursor := 0
 	for i, textChunk := range textChunks {
-		// Locate the chunk in the normalized text to record byte offsets that
-		// satisfy Content == normalized[StartOffset:EndOffset]. On a miss, leave
-		// the offsets zeroed so downstream context assembly falls back to its
-		// plain separator path rather than splicing on corrupt offsets.
 		start, end := 0, 0
 		if idx := strings.Index(normalized[cursor:], textChunk); idx >= 0 {
 			start = cursor + idx
 			end = start + len(textChunk)
-			// Advance past this chunk's start so the next search is monotonic
-			// and duplicate text downstream still resolves to the correct
-			// occurrence.
 			cursor = start + 1
 		}
 		chunks[i] = types.DocumentChunk{
@@ -164,10 +157,6 @@ func (rp *RAGPipeline) retrieveContext(question string) ([]types.DocumentChunk, 
 	return relevantDocs, rp.expandContext(relevantDocs), nil
 }
 
-// expandContext widens each search hit with its adjacent chunks (same source,
-// within neighborRadius), dedupes by ID, trims the budget, and assembles the
-// result in document order so the LLM sees fuller surrounding context. The hits
-// themselves remain the response's attributed sources; only this context grows.
 func (rp *RAGPipeline) expandContext(hits []types.DocumentChunk) string {
 	byID := make(map[string]types.DocumentChunk, len(hits))
 	hitIDs := make(map[string]bool, len(hits))
@@ -204,11 +193,6 @@ func (rp *RAGPipeline) expandContext(hits []types.DocumentChunk) string {
 	return assembleContext(selected)
 }
 
-// selectWithinBudget keeps every hit and fills the remaining budget with
-// neighbors in document order. It estimates with raw content length, an upper
-// bound on the assembled size since overlap merging only removes text, so the
-// emitted context never exceeds the budget. Hits are kept even if they alone
-// exceed it, to preserve source attribution.
 func selectWithinBudget(ordered []types.DocumentChunk, hitIDs map[string]bool, budget int) []types.DocumentChunk {
 	total := 0
 	for _, c := range ordered {
@@ -231,10 +215,6 @@ func selectWithinBudget(ordered []types.DocumentChunk, hitIDs map[string]bool, b
 	return selected
 }
 
-// assembleContext joins chunks in document order, splicing out the duplicated
-// overlap between adjacent chunks of the same source so boundary text is emitted
-// once. Chunks without offsets, gaps, and source boundaries fall back to a blank
-// line separator.
 func assembleContext(chunks []types.DocumentChunk) string {
 	var b strings.Builder
 	var prevSource string
@@ -424,7 +404,6 @@ func (rp *RAGPipeline) generateEmbeddingParallel(texts []string) ([][]float64, e
 	wg.Wait()
 	close(resultChan)
 
-	// Collect results in order
 	results := make([]batchResult, len(batches))
 	for result := range resultChan {
 		if result.err != nil {
@@ -433,7 +412,6 @@ func (rp *RAGPipeline) generateEmbeddingParallel(texts []string) ([][]float64, e
 		results[result.index] = result
 	}
 
-	// Combine all embeddings in the correct order
 	allEmbeddings := make([][]float64, 0, len(texts))
 	for _, result := range results {
 		allEmbeddings = append(allEmbeddings, result.embeddings...)
@@ -477,9 +455,6 @@ func trimHistory(history []types.Message) []types.Message {
 	return history[len(history)-maxHistoryTurns:]
 }
 
-// Concatenates the last retrievalRewriteWindow user turns with the current
-// question so the embedding has more anchor for follow-up disambiguation.
-// Centralized so the rewrite can later be swapped to an LLM-based one.
 func rewriteQueryForRetrieval(history []types.Message, question string) string {
 	var parts []string
 	userTurns := 0
