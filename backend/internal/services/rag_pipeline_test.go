@@ -959,9 +959,9 @@ func TestRetainAboveThreshold(t *testing.T) {
 			expected: expected{ids: []string{"a", "b"}},
 		},
 		{
-			name:     "drops the first chunk below threshold and everything after",
+			name:     "keeps qualifying chunks regardless of order",
 			input:    []types.ScoredChunk{chunk("a", 0.8), chunk("b", 0.29), chunk("c", 0.5)},
-			expected: expected{ids: []string{"a"}},
+			expected: expected{ids: []string{"a", "c"}},
 		},
 		{
 			name:     "all below threshold yields nothing",
@@ -1004,8 +1004,13 @@ func TestConfidenceFromTopScore(t *testing.T) {
 			expected: 0.42,
 		},
 		{
-			name:     "returns the first (max) of a descending slice",
+			name:     "returns the max of a descending slice",
 			input:    []types.ScoredChunk{score(0.9), score(0.5), score(0.3)},
+			expected: 0.9,
+		},
+		{
+			name:     "returns the max regardless of order",
+			input:    []types.ScoredChunk{score(0.3), score(0.9), score(0.5)},
 			expected: 0.9,
 		},
 		{

@@ -251,26 +251,32 @@ func assembleContext(chunks []types.DocumentChunk) string {
 	return b.String()
 }
 
-// retainAboveThreshold drops chunks scoring below similarityThreshold. The input
-// is assumed sorted by descending score (as returned by the vector store), so it
-// stops at the first chunk below the threshold.
+// retainAboveThreshold returns the chunks scoring at or above similarityThreshold,
+// preserving input order. It does not assume the input is sorted, so a caller that
+// passes chunks in any order still gets every qualifying chunk.
 func retainAboveThreshold(scored []types.ScoredChunk) []types.ScoredChunk {
-	for i, sc := range scored {
-		if sc.Score < similarityThreshold {
-			return scored[:i]
+	retained := make([]types.ScoredChunk, 0, len(scored))
+	for _, sc := range scored {
+		if sc.Score >= similarityThreshold {
+			retained = append(retained, sc)
 		}
 	}
-	return scored
+	return retained
 }
 
-// confidenceFromTopScore derives a [0,1] confidence from the best retained
-// cosine score. Empty input (no chunk passed the threshold) yields 0.0. The
-// input is assumed sorted by descending score, so the first element is the max.
+// confidenceFromTopScore derives a [0,1] confidence from the highest retained
+// cosine score. Empty input (no chunk passed the threshold) yields 0.0. It scans
+// for the max rather than trusting the slice order.
 func confidenceFromTopScore(retained []types.ScoredChunk) float64 {
 	if len(retained) == 0 {
 		return 0.0
 	}
 	top := retained[0].Score
+	for _, sc := range retained[1:] {
+		if sc.Score > top {
+			top = sc.Score
+		}
+	}
 	if top < 0 {
 		return 0.0
 	}
