@@ -103,8 +103,9 @@ func TestQueryStream_PreStreamErrors(t *testing.T) {
 
 func TestQueryStream_Success(t *testing.T) {
 	type expected struct {
-		tokens  string
-		sources int
+		tokens     string
+		sources    int
+		confidence float64
 	}
 	type mock struct {
 		searchResults []types.ScoredChunk
@@ -128,7 +129,7 @@ func TestQueryStream_Success(t *testing.T) {
 					makeChatCompletionChunk("world"),
 				},
 			},
-			expected: expected{tokens: "Hello world", sources: 1},
+			expected: expected{tokens: "Hello world", sources: 1, confidence: 0.9},
 		},
 		{
 			name: "skips empty-content chunks",
@@ -142,7 +143,7 @@ func TestQueryStream_Success(t *testing.T) {
 					{Choices: []openai.ChatCompletionChunkChoice{}},
 				},
 			},
-			expected: expected{tokens: "answer", sources: 1},
+			expected: expected{tokens: "answer", sources: 1, confidence: 0.5},
 		},
 		{
 			name: "empty stream emits sources then done with no tokens",
@@ -152,7 +153,7 @@ func TestQueryStream_Success(t *testing.T) {
 				},
 				streamChunks: []openai.ChatCompletionChunk{},
 			},
-			expected: expected{tokens: "", sources: 1},
+			expected: expected{tokens: "", sources: 1, confidence: 0.5},
 		},
 		{
 			name: "handles no search results",
@@ -162,7 +163,7 @@ func TestQueryStream_Success(t *testing.T) {
 					makeChatCompletionChunk("no info"),
 				},
 			},
-			expected: expected{tokens: "no info", sources: 0},
+			expected: expected{tokens: "no info", sources: 0, confidence: 0.0},
 		},
 	}
 
@@ -195,7 +196,7 @@ func TestQueryStream_Success(t *testing.T) {
 			assert.GreaterOrEqual(t, len(received), 2, "expected at least sources + done")
 			assert.NotNil(t, received[0].Sources)
 			assert.Len(t, received[0].Sources, tt.expected.sources)
-			assert.Equal(t, defaultConfidence, received[0].Confidence)
+			assert.Equal(t, tt.expected.confidence, received[0].Confidence)
 
 			var tokens string
 			for _, ev := range received[1 : len(received)-1] {

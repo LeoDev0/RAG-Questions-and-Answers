@@ -715,9 +715,10 @@ func TestQuery(t *testing.T) {
 		chat      chatMock
 	}
 	type expected struct {
-		answer  string
-		sources int
-		err     string
+		answer     string
+		sources    int
+		confidence float64
+		err        string
 	}
 
 	tests := []struct {
@@ -737,8 +738,9 @@ func TestQuery(t *testing.T) {
 				chat: chatMock{response: makeChatCompletion("Go is a compiled language.")},
 			},
 			expected: expected{
-				answer:  "Go is a compiled language.",
-				sources: 1,
+				answer:     "Go is a compiled language.",
+				sources:    1,
+				confidence: 0.9,
 			},
 		},
 		{
@@ -754,8 +756,26 @@ func TestQuery(t *testing.T) {
 				chat: chatMock{response: makeChatCompletion("Go is great.")},
 			},
 			expected: expected{
-				answer:  "Go is great.",
-				sources: 3,
+				answer:     "Go is great.",
+				sources:    3,
+				confidence: 0.9,
+			},
+		},
+		{
+			name:     "drops chunks below the similarity threshold",
+			question: "What is Go?",
+			mock: mock{
+				embedding: embeddingMock{response: makeEmbeddingResponse([][]float64{{0.5}})},
+				search: searchMock{result: []types.ScoredChunk{
+					{Chunk: types.DocumentChunk{ID: "c1", Content: "Go is compiled"}, Score: 0.6},
+					{Chunk: types.DocumentChunk{ID: "c2", Content: "weak match"}, Score: 0.2},
+				}},
+				chat: chatMock{response: makeChatCompletion("Go is great.")},
+			},
+			expected: expected{
+				answer:     "Go is great.",
+				sources:    1,
+				confidence: 0.6,
 			},
 		},
 		{
@@ -800,8 +820,26 @@ func TestQuery(t *testing.T) {
 				chat:      chatMock{response: makeChatCompletion("I don't have enough information.")},
 			},
 			expected: expected{
-				answer:  "I don't have enough information.",
-				sources: 0,
+				answer:     "I don't have enough information.",
+				sources:    0,
+				confidence: 0.0,
+			},
+		},
+		{
+			name:     "all chunks below threshold yields empty context and zero confidence",
+			question: "off topic",
+			mock: mock{
+				embedding: embeddingMock{response: makeEmbeddingResponse([][]float64{{0.1}})},
+				search: searchMock{result: []types.ScoredChunk{
+					{Chunk: types.DocumentChunk{ID: "c1", Content: "irrelevant one"}, Score: 0.25},
+					{Chunk: types.DocumentChunk{ID: "c2", Content: "irrelevant two"}, Score: 0.1},
+				}},
+				chat: chatMock{response: makeChatCompletion("I don't have enough information.")},
+			},
+			expected: expected{
+				answer:     "I don't have enough information.",
+				sources:    0,
+				confidence: 0.0,
 			},
 		},
 	}
@@ -842,10 +880,16 @@ func TestQuery(t *testing.T) {
 				assert.NotNil(t, result)
 				assert.Equal(t, tt.expected.answer, result.Answer)
 				assert.Len(t, result.Sources, tt.expected.sources)
-				assert.Equal(t, defaultConfidence, result.Confidence)
+				assert.Equal(t, tt.expected.confidence, result.Confidence)
 
-				for _, sc := range tt.mock.search.result {
-					assert.Contains(t, capturedContext, sc.Chunk.Content)
+				// Search results are sorted by descending score, so the first
+				// expected.sources are retained and the rest are filtered out.
+				for i, sc := range tt.mock.search.result {
+					if i < tt.expected.sources {
+						assert.Contains(t, capturedContext, sc.Chunk.Content)
+					} else {
+						assert.NotContains(t, capturedContext, sc.Chunk.Content)
+					}
 				}
 			}
 		})
@@ -883,6 +927,109 @@ func TestQuery_ContextBuiltFromMultipleSources(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Contains(t, capturedPrompt, "First chunk\n\nSecond chunk")
+}
+
+func TestRetainAboveThreshold(t *testing.T) {
+	chunk := func(id string, score float64) types.ScoredChunk {
+		return types.ScoredChunk{Chunk: types.DocumentChunk{ID: id}, Score: score}
+	}
+
+	type expected struct {
+		ids []string
+	}
+
+	tests := []struct {
+		name     string
+		input    []types.ScoredChunk
+		expected expected
+	}{
+		{
+			name:     "empty input",
+			input:    []types.ScoredChunk{},
+			expected: expected{ids: []string{}},
+		},
+		{
+			name:     "all above threshold are kept",
+			input:    []types.ScoredChunk{chunk("a", 0.9), chunk("b", 0.5), chunk("c", 0.3)},
+			expected: expected{ids: []string{"a", "b", "c"}},
+		},
+		{
+			name:     "boundary score equal to threshold is kept",
+			input:    []types.ScoredChunk{chunk("a", 0.9), chunk("b", similarityThreshold)},
+			expected: expected{ids: []string{"a", "b"}},
+		},
+		{
+			name:     "keeps qualifying chunks regardless of order",
+			input:    []types.ScoredChunk{chunk("a", 0.8), chunk("b", 0.29), chunk("c", 0.5)},
+			expected: expected{ids: []string{"a", "c"}},
+		},
+		{
+			name:     "all below threshold yields nothing",
+			input:    []types.ScoredChunk{chunk("a", 0.2), chunk("b", 0.1)},
+			expected: expected{ids: []string{}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			retained := retainAboveThreshold(tt.input)
+
+			ids := make([]string, 0, len(retained))
+			for _, sc := range retained {
+				ids = append(ids, sc.Chunk.ID)
+			}
+			assert.Equal(t, tt.expected.ids, ids)
+		})
+	}
+}
+
+func TestConfidenceFromTopScore(t *testing.T) {
+	score := func(s float64) types.ScoredChunk {
+		return types.ScoredChunk{Score: s}
+	}
+
+	tests := []struct {
+		name     string
+		input    []types.ScoredChunk
+		expected float64
+	}{
+		{
+			name:     "empty yields zero",
+			input:    []types.ScoredChunk{},
+			expected: 0.0,
+		},
+		{
+			name:     "single score is returned",
+			input:    []types.ScoredChunk{score(0.42)},
+			expected: 0.42,
+		},
+		{
+			name:     "returns the max of a descending slice",
+			input:    []types.ScoredChunk{score(0.9), score(0.5), score(0.3)},
+			expected: 0.9,
+		},
+		{
+			name:     "returns the max regardless of order",
+			input:    []types.ScoredChunk{score(0.3), score(0.9), score(0.5)},
+			expected: 0.9,
+		},
+		{
+			name:     "score above one clamps to one",
+			input:    []types.ScoredChunk{score(1.4)},
+			expected: 1.0,
+		},
+		{
+			name:     "negative score clamps to zero",
+			input:    []types.ScoredChunk{score(-0.2)},
+			expected: 0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.InDelta(t, tt.expected, confidenceFromTopScore(tt.input), 1e-9)
+		})
+	}
 }
 
 func TestQuery_NeighborsExpandedIntoContextInDocumentOrder(t *testing.T) {
