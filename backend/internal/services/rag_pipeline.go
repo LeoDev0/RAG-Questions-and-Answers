@@ -18,12 +18,11 @@ import (
 )
 
 const (
-	defaultConfidence = 0.8
-	chunkSize         = 1000
-	chunkOverlap      = 200
-	maxContentChunks  = 4
-	maxBatchSize      = 40
-	maxConcurrency    = 5
+	chunkSize        = 1000
+	chunkOverlap     = 200
+	maxContentChunks = 4
+	maxBatchSize     = 40
+	maxConcurrency   = 5
 	// neighborRadius controls how many adjacent chunks are pulled in around
 	// each search hit to give the LLM fuller surrounding context than the
 	// matched fragment alone.
@@ -32,6 +31,13 @@ const (
 	// a safety rail if neighborRadius grows. Search hits are always kept;
 	// neighbors are dropped first when over budget.
 	maxContextChars = 24000
+	// similarityThreshold is the minimum cosine score a chunk must reach to be
+	// fed to the LLM. Chunks below it are dropped so weak matches don't dilute
+	// the prompt. It is a starting default for text-embedding-3-small relevance
+	// scores; the eval harness (TestRetrievalThreshold) validates the filtering
+	// mechanism and the positive/negative score separation offline. A chunk is
+	// retained iff its score is >= this value.
+	similarityThreshold = 0.3
 	// maxHistoryTurns bounds how many prior turns are sent to the LLM as
 	// conversational context. retrievalRewriteWindow bounds how many recent
 	// user turns are folded into the embedding query for vector search.
@@ -158,33 +164,35 @@ func (rp *RAGPipeline) QueryStream(ctx context.Context, question string, history
 	history = trimHistory(history)
 	retrievalQuery := rewriteQueryForRetrieval(history, question)
 
-	relevantDocs, contextInfo, err := rp.retrieveContext(retrievalQuery)
+	relevantDocs, contextInfo, confidence, err := rp.retrieveContext(retrievalQuery)
 	if err != nil {
 		return nil, err
 	}
 
 	events := make(chan StreamEvent)
-	go rp.streamCompletion(ctx, relevantDocs, contextInfo, history, question, events)
+	go rp.streamCompletion(ctx, relevantDocs, contextInfo, confidence, history, question, events)
 	return events, nil
 }
 
-func (rp *RAGPipeline) retrieveContext(question string) ([]types.DocumentChunk, string, error) {
+func (rp *RAGPipeline) retrieveContext(question string) ([]types.DocumentChunk, string, float64, error) {
 	queryEmbedding, err := rp.generateEmbedding(question)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to generate embedding for query: %w", err)
+		return nil, "", 0, fmt.Errorf("failed to generate embedding for query: %w", err)
 	}
 
 	scoredChunks, err := rp.vectorStore.Search(queryEmbedding, maxContentChunks)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to search vector store: %w", err)
+		return nil, "", 0, fmt.Errorf("failed to search vector store: %w", err)
 	}
 
-	relevantDocs := make([]types.DocumentChunk, len(scoredChunks))
-	for i, scored := range scoredChunks {
-		relevantDocs[i] = scored.Chunk
+	retained := retainAboveThreshold(scoredChunks)
+
+	relevantDocs := make([]types.DocumentChunk, 0, len(retained))
+	for _, scored := range retained {
+		relevantDocs = append(relevantDocs, scored.Chunk)
 	}
 
-	return relevantDocs, rp.expandContext(relevantDocs), nil
+	return relevantDocs, rp.expandContext(relevantDocs), confidenceFromTopScore(retained), nil
 }
 
 func (rp *RAGPipeline) expandContext(hits []types.DocumentChunk) string {
@@ -273,7 +281,36 @@ func assembleContext(chunks []types.DocumentChunk) string {
 	return b.String()
 }
 
-func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.DocumentChunk, contextInfo string, history []types.Message, question string, events chan<- StreamEvent) {
+func retainAboveThreshold(scored []types.ScoredChunk) []types.ScoredChunk {
+	retained := make([]types.ScoredChunk, 0, len(scored))
+	for _, sc := range scored {
+		if sc.Score >= similarityThreshold {
+			retained = append(retained, sc)
+		}
+	}
+	return retained
+}
+
+func confidenceFromTopScore(retained []types.ScoredChunk) float64 {
+	if len(retained) == 0 {
+		return 0.0
+	}
+	top := retained[0].Score
+	for _, sc := range retained[1:] {
+		if sc.Score > top {
+			top = sc.Score
+		}
+	}
+	if top < 0 {
+		return 0.0
+	}
+	if top > 1 {
+		return 1.0
+	}
+	return top
+}
+
+func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.DocumentChunk, contextInfo string, confidence float64, history []types.Message, question string, events chan<- StreamEvent) {
 	defer close(events)
 
 	send := func(ev StreamEvent) bool {
@@ -285,7 +322,7 @@ func (rp *RAGPipeline) streamCompletion(ctx context.Context, sources []types.Doc
 		}
 	}
 
-	if !send(StreamEvent{Sources: sources, Confidence: defaultConfidence}) {
+	if !send(StreamEvent{Sources: sources, Confidence: confidence}) {
 		return
 	}
 
@@ -318,7 +355,7 @@ func (rp *RAGPipeline) Query(question string, history []types.Message) (*types.R
 	history = trimHistory(history)
 	retrievalQuery := rewriteQueryForRetrieval(history, question)
 
-	relevantDocs, contextInfo, err := rp.retrieveContext(retrievalQuery)
+	relevantDocs, contextInfo, confidence, err := rp.retrieveContext(retrievalQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +368,7 @@ func (rp *RAGPipeline) Query(question string, history []types.Message) (*types.R
 	return &types.RAGResponse{
 		Answer:     answer,
 		Sources:    relevantDocs,
-		Confidence: defaultConfidence, // Static confidence for now
+		Confidence: confidence,
 	}, nil
 }
 
