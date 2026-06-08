@@ -53,7 +53,7 @@ func (h *UploadHandler) HandleUpload(c *gin.Context) {
 		return
 	}
 
-	processed, err := h.documentProcessor.ProcessFile(fileHeader)
+	content, err := h.documentProcessor.ProcessFile(fileHeader)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
 			Error:   "Failed to process document",
@@ -63,13 +63,13 @@ func (h *UploadHandler) HandleUpload(c *gin.Context) {
 		return
 	}
 
-	document := h.documentProcessor.CreateDocument(processed.NormalizedText, fileHeader.Filename)
+	document := h.documentProcessor.CreateDocument(content.NormalizedText, fileHeader.Filename)
 
 	// Process into chunks with embeddings
 	metadata := map[string]string{
 		"source": fileHeader.Filename,
 	}
-	chunks, err := h.ragPipeline.ProcessDocument(processed, metadata)
+	chunks, err := h.ragPipeline.ProcessDocument(content, metadata)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, types.ErrorResponse{
 			Error:   "Failed to process document chunks",
