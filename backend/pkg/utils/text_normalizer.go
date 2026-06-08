@@ -43,10 +43,7 @@ func Normalize(text string) string {
 }
 
 // StripRepeatedHeadersFooters removes page headers and footers that repeat
-// across the per-page text of a PDF, returning each page with its text cleaned
-// and its Number preserved so page attribution travels with the text rather
-// than relying on positional alignment. Detection is skipped for documents with
-// too few pages to provide a reliable signal.
+// across the per-page text of a PDF
 func StripRepeatedHeadersFooters(pages []types.Page) []types.Page {
 	if len(pages) < minPagesForDetection {
 		return pages

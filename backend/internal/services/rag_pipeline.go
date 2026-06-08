@@ -122,10 +122,6 @@ func (rp *RAGPipeline) ProcessDocument(doc types.ProcessedDocument, metadata map
 	return chunks, nil
 }
 
-// pageForOffset maps a byte offset in the normalized text to the page whose
-// span contains it, attributing a chunk to the page of its StartOffset. The
-// "\n\n" gap between page spans falls to the preceding page. Returns 0 when
-// the document carries no page spans (e.g. plain-text uploads).
 func pageForOffset(spans []types.PageSpan, offset int) int {
 	if len(spans) == 0 {
 		return 0
