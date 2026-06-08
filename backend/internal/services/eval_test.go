@@ -18,6 +18,7 @@ import (
 	"rag-backend/internal/config"
 	"rag-backend/internal/repositories/vectorstore"
 	"rag-backend/internal/repositories/vectorstore/memory"
+	"rag-backend/pkg/types"
 	"rag-backend/pkg/utils"
 )
 
@@ -37,7 +38,7 @@ func (e *hashingEmbedder) New(_ context.Context, body openai.EmbeddingNewParams,
 
 	data := make([]openai.Embedding, len(texts))
 	for i, text := range texts {
-		data[i] = openai.Embedding{Embedding: embedText(text, e.dims)}
+		data[i] = openai.Embedding{Index: int64(i), Embedding: embedText(text, e.dims)}
 	}
 	return &openai.CreateEmbeddingResponse{Data: data}, nil
 }
@@ -324,6 +325,52 @@ func TestRetrievalThreshold(t *testing.T) {
 
 	assert.GreaterOrEqual(t, got.filteredRecall, want.filteredRecall)
 	assert.GreaterOrEqual(t, got.negativeRejection, want.negativeRejection)
+}
+
+func TestEvalNeighborExpansionRecoversCrossChunkAnswer(t *testing.T) {
+	densePara := func() string {
+		return strings.Repeat("quantum entanglement correlation analysis. ", 14)
+	}
+	answerNeedle := "zero point eight seven"
+	answerPara := "The recorded measurement value equaled " + answerNeedle + " units. " +
+		strings.Repeat("laboratory staff logged ambient temperature during sessions. ", 9)
+
+	paragraphs := []string{
+		densePara(),
+		densePara(),
+		densePara(),
+		answerPara,
+		densePara(),
+		densePara(),
+	}
+	content := strings.Join(paragraphs, "\n\n")
+
+	embedder := &hashingEmbedder{dims: embeddingDims}
+	store := memory.NewMemoryVectorStore()
+	pipeline := newEvalPipeline(embedder, store)
+
+	chunks, err := pipeline.ProcessDocument(content, map[string]string{"source": "physics"})
+	assert.NoError(t, err)
+	assert.NoError(t, pipeline.AddDocumentToVectorStore(chunks))
+	assert.Greater(t, len(chunks), maxContentChunks, "need more chunks than k so the answer chunk falls outside top-k")
+
+	scored, err := store.Search(embedText("quantum entanglement correlation", embeddingDims), maxContentChunks)
+	assert.NoError(t, err)
+
+	hits := make([]types.DocumentChunk, len(scored))
+	var bareContext strings.Builder
+	for i, sc := range scored {
+		hits[i] = sc.Chunk
+		bareContext.WriteString(sc.Chunk.Content)
+		bareContext.WriteString("\n\n")
+	}
+
+	expanded := pipeline.expandContext(hits)
+
+	assert.NotContains(t, bareContext.String(), answerNeedle,
+		"baseline top-k retrieval should miss the cross-chunk answer detail")
+	assert.Contains(t, expanded, answerNeedle,
+		"neighbor expansion should recover the adjacent answer chunk")
 }
 
 func TestEvalMetrics(t *testing.T) {

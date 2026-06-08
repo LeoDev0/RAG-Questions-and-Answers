@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"rag-backend/internal/repositories/vectorstore"
+	"sort"
 	"strings"
 	"sync"
 
@@ -16,11 +17,20 @@ import (
 )
 
 const (
-	chunkSize        = 1000
-	chunkOverlap     = 200
-	maxContentChunks = 4
-	maxBatchSize     = 40
-	maxConcurrency   = 5
+	defaultConfidence = 0.8
+	chunkSize         = 1000
+	chunkOverlap      = 200
+	maxContentChunks  = 4
+	maxBatchSize      = 40
+	maxConcurrency    = 5
+	// neighborRadius controls how many adjacent chunks are pulled in around
+	// each search hit to give the LLM fuller surrounding context than the
+	// matched fragment alone.
+	neighborRadius = 1
+	// maxContextChars bounds the assembled context (in bytes) sent to the LLM as
+	// a safety rail if neighborRadius grows. Search hits are always kept;
+	// neighbors are dropped first when over budget.
+	maxContextChars = 24000
 	// similarityThreshold is the minimum cosine score a chunk must reach to be
 	// fed to the LLM. Chunks below it are dropped so weak matches don't dilute
 	// the prompt. It is a starting default for text-embedding-3-small relevance
@@ -62,7 +72,8 @@ func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RA
 }
 
 func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
-	textChunks := rp.textSplitter.SplitText(utils.Normalize(content))
+	normalized := utils.Normalize(content)
+	textChunks := rp.textSplitter.SplitText(normalized)
 
 	var embeddings [][]float64
 	var err error
@@ -79,13 +90,25 @@ func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]strin
 		return nil, fmt.Errorf("failed to generate embeddings: %w", err)
 	}
 
+	source := metadata["source"]
 	chunks := make([]types.DocumentChunk, len(textChunks))
+	cursor := 0
 	for i, textChunk := range textChunks {
+		start, end := 0, 0
+		if idx := strings.Index(normalized[cursor:], textChunk); idx >= 0 {
+			start = cursor + idx
+			end = start + len(textChunk)
+			cursor = start + 1
+		}
 		chunks[i] = types.DocumentChunk{
-			ID:        fmt.Sprintf("%s-chunk-%d", metadata["source"], i),
-			Content:   textChunk,
-			Embedding: embeddings[i],
-			Metadata:  metadata,
+			ID:          fmt.Sprintf("%s-chunk-%d", source, i),
+			Content:     textChunk,
+			Embedding:   embeddings[i],
+			Metadata:    metadata,
+			Source:      source,
+			ChunkIndex:  i,
+			StartOffset: start,
+			EndOffset:   end,
 		}
 	}
 
@@ -134,17 +157,98 @@ func (rp *RAGPipeline) retrieveContext(question string) ([]types.DocumentChunk, 
 
 	retained := retainAboveThreshold(scoredChunks)
 
-	var contextBuilder strings.Builder
 	relevantDocs := make([]types.DocumentChunk, 0, len(retained))
-	for i, scored := range retained {
-		if i > 0 {
-			contextBuilder.WriteString("\n\n")
-		}
-		contextBuilder.WriteString(scored.Chunk.Content)
+	for _, scored := range retained {
 		relevantDocs = append(relevantDocs, scored.Chunk)
 	}
 
-	return relevantDocs, contextBuilder.String(), confidenceFromTopScore(retained), nil
+	return relevantDocs, rp.expandContext(relevantDocs), confidenceFromTopScore(retained), nil
+}
+
+func (rp *RAGPipeline) expandContext(hits []types.DocumentChunk) string {
+	byID := make(map[string]types.DocumentChunk, len(hits))
+	hitIDs := make(map[string]bool, len(hits))
+	for _, hit := range hits {
+		byID[hit.ID] = hit
+		hitIDs[hit.ID] = true
+		neighbors, err := rp.vectorStore.Neighbors(hit.Source, hit.ChunkIndex, neighborRadius)
+		if err != nil {
+			// Degrade gracefully: keep the hit, skip its neighbors.
+			continue
+		}
+		for _, neighbor := range neighbors {
+			if _, seen := byID[neighbor.ID]; !seen {
+				byID[neighbor.ID] = neighbor
+			}
+		}
+	}
+
+	ordered := make([]types.DocumentChunk, 0, len(byID))
+	for _, chunk := range byID {
+		ordered = append(ordered, chunk)
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].Source != ordered[j].Source {
+			return ordered[i].Source < ordered[j].Source
+		}
+		if ordered[i].ChunkIndex != ordered[j].ChunkIndex {
+			return ordered[i].ChunkIndex < ordered[j].ChunkIndex
+		}
+		return ordered[i].ID < ordered[j].ID
+	})
+
+	selected := selectWithinBudget(ordered, hitIDs, maxContextChars)
+	return assembleContext(selected)
+}
+
+func selectWithinBudget(ordered []types.DocumentChunk, hitIDs map[string]bool, budget int) []types.DocumentChunk {
+	total := 0
+	for _, c := range ordered {
+		if hitIDs[c.ID] {
+			total += len(c.Content)
+		}
+	}
+
+	selected := make([]types.DocumentChunk, 0, len(ordered))
+	for _, c := range ordered {
+		if hitIDs[c.ID] {
+			selected = append(selected, c)
+			continue
+		}
+		if total+len(c.Content) <= budget {
+			total += len(c.Content)
+			selected = append(selected, c)
+		}
+	}
+	return selected
+}
+
+func assembleContext(chunks []types.DocumentChunk) string {
+	var b strings.Builder
+	var prevSource string
+	var prevEnd int
+	started := false
+
+	for _, c := range chunks {
+		if started && c.Source == prevSource && prevEnd > 0 && c.EndOffset > 0 && c.StartOffset < prevEnd {
+			overlap := prevEnd - c.StartOffset
+			if overlap < len(c.Content) {
+				b.WriteString(c.Content[overlap:])
+			}
+			prevEnd = max(prevEnd, c.EndOffset)
+			continue
+		}
+
+		if started {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(c.Content)
+		prevSource = c.Source
+		prevEnd = c.EndOffset
+		started = true
+	}
+
+	return b.String()
 }
 
 // retainAboveThreshold drops chunks scoring below similarityThreshold. The input
@@ -253,13 +357,7 @@ func (rp *RAGPipeline) generateEmbedding(text string) ([]float64, error) {
 		return nil, fmt.Errorf("no embedding returned")
 	}
 
-	// TODO Handle different embedding types if needed so I dont have to make this conversion
-	embedding32 := embedding.Data[0].Embedding
-	embedding64 := make([]float64, len(embedding32))
-	for i, v := range embedding32 {
-		embedding64[i] = float64(v)
-	}
-	return embedding64, nil
+	return embedding.Data[0].Embedding, nil
 }
 
 func (rp *RAGPipeline) generateEmbeddingBatch(texts []string) ([][]float64, error) {
@@ -281,15 +379,9 @@ func (rp *RAGPipeline) generateEmbeddingBatch(texts []string) ([][]float64, erro
 		return nil, fmt.Errorf("expected %d embeddings, got %d", len(texts), len(embedding.Data))
 	}
 
-	// TODO Handle different embedding types if needed so I dont have to make this conversion
 	embeddings := make([][]float64, len(embedding.Data))
-	for i, embData := range embedding.Data {
-		embedding32 := embData.Embedding
-		embedding64 := make([]float64, len(embedding32))
-		for j, v := range embedding32 {
-			embedding64[j] = float64(v)
-		}
-		embeddings[i] = embedding64
+	for _, embData := range embedding.Data {
+		embeddings[embData.Index] = embData.Embedding
 	}
 
 	return embeddings, nil
@@ -337,7 +429,6 @@ func (rp *RAGPipeline) generateEmbeddingParallel(texts []string) ([][]float64, e
 	wg.Wait()
 	close(resultChan)
 
-	// Collect results in order
 	results := make([]batchResult, len(batches))
 	for result := range resultChan {
 		if result.err != nil {
@@ -346,7 +437,6 @@ func (rp *RAGPipeline) generateEmbeddingParallel(texts []string) ([][]float64, e
 		results[result.index] = result
 	}
 
-	// Combine all embeddings in the correct order
 	allEmbeddings := make([][]float64, 0, len(texts))
 	for _, result := range results {
 		allEmbeddings = append(allEmbeddings, result.embeddings...)
@@ -390,9 +480,6 @@ func trimHistory(history []types.Message) []types.Message {
 	return history[len(history)-maxHistoryTurns:]
 }
 
-// Concatenates the last retrievalRewriteWindow user turns with the current
-// question so the embedding has more anchor for follow-up disambiguation.
-// Centralized so the rewrite can later be swapped to an LLM-based one.
 func rewriteQueryForRetrieval(history []types.Message, question string) string {
 	var parts []string
 	userTurns := 0
