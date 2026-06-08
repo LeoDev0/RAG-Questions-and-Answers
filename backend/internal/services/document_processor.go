@@ -80,9 +80,7 @@ func (dp *DocumentProcessor) processPDF(content []byte) (types.ProcessedDocument
 
 // buildProcessedDocument strips repeated headers/footers across the page slice,
 // normalizes each surviving page independently, and concatenates them with
-// blank-line page breaks. Normalizing per page keeps the recorded PageSpans
-// exact in the final normalized coordinate space: each span's [Start:End]
-// slice of NormalizedText is precisely that page's normalized text.
+// blank-line page breaks.
 func buildProcessedDocument(pages []types.Page) types.ProcessedDocument {
 	cleaned := utils.StripRepeatedHeadersFooters(pages)
 
