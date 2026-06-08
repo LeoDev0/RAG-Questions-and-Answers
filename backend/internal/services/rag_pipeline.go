@@ -17,12 +17,11 @@ import (
 )
 
 const (
-	defaultConfidence = 0.8
-	chunkSize         = 1000
-	chunkOverlap      = 200
-	maxContentChunks  = 4
-	maxBatchSize      = 40
-	maxConcurrency    = 5
+	chunkSize        = 1000
+	chunkOverlap     = 200
+	maxContentChunks = 4
+	maxBatchSize     = 40
+	maxConcurrency   = 5
 	// neighborRadius controls how many adjacent chunks are pulled in around
 	// each search hit to give the LLM fuller surrounding context than the
 	// matched fragment alone.
