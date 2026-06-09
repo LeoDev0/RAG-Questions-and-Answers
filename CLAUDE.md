@@ -34,6 +34,12 @@ gofmt -w .
 
 # Vet code
 go vet ./...
+
+# Lint (golangci-lint, pinned version auto-installed on first run)
+make lint
+
+# Lint with autofixes where supported
+make lint-fix
 ```
 
 ### Frontend (Next.js App)
@@ -81,14 +87,19 @@ This project follows a **decoupled architecture** with separate backend and fron
 │   │   ├── config/   # Configuration handling
 │   │   ├── handlers/ # HTTP handlers (REST API with proper status codes)
 │   │   ├── services/ # Business logic (RAG pipeline, document processing)
-│   │   └── vectorstore/ # Vector store interface and implementations
-│   │       ├── interface.go # VectorStore interface
-│   │       └── memory/      # In-memory implementation
-│   │           └── memory_store.go
+│   │   └── repositories/
+│   │       └── vectorstore/ # Vector store interface and implementations
+│   │           ├── interface.go # VectorStore interface
+│   │           └── memory/      # In-memory implementation
+│   │               └── memory_store.go
 │   ├── pkg/
-│   │   ├── types/    # Data structures (REST response types)
-│   │   └── utils/    # Utilities
+│   │   ├── codes/      # API error codes
+│   │   ├── similarity/ # Cosine similarity
+│   │   ├── types/      # Data structures (REST response types)
+│   │   └── utils/      # Text splitting and normalization
 │   ├── go.mod        # Uses openai-go v1.12.0 (official client)
+│   ├── Makefile      # lint / lint-fix / test / fmt / vet targets
+│   ├── .golangci.yml
 │   ├── .env.example
 │   └── .gitignore
 ├── frontend/         # Next.js React application
@@ -111,11 +122,15 @@ This project follows a **decoupled architecture** with separate backend and fron
   - **Embeddings**: OpenAI embeddings for vector similarity search
   - **Vector Store**: Interface-based design with in-memory implementation
   - **Text Splitting**: 1000 character chunks with 200 character overlap
+  - **Text Normalization**: Extracted text is normalized before chunking (`pkg/utils/text_normalizer.go`) — page-aware header/footer stripping and de-hyphenation across page breaks
+  - **Page Attribution**: PDF page numbers are tracked via `PageSpan`s and attached to each chunk (`DocumentChunk.Page` + `page` metadata)
+  - **Relevance Filtering & Confidence**: Search hits below `similarityThreshold` (0.3) are dropped so weak matches don't dilute the prompt; the response `Confidence` is derived from the retained scores
+  - **Neighbor Context Expansion**: `neighborRadius` adjacent chunks are pulled in around each search hit (bounded by `maxContextChars`) to give the LLM fuller surrounding context than the matched fragment alone
   - **Conversation History**: Optional `history` is trimmed to the last `maxHistoryTurns` turns before being passed as prior chat messages to the LLM. A separate, smaller `retrievalRewriteWindow` folds only the most recent user turns into the embedding query — keeping retrieval focused on the current topic while still resolving follow-up references like "it" or "that".
 
-- **Vector Store Architecture** (`backend/internal/vectorstore/`)
-  - **Interface**: `VectorStore` interface for pluggable implementations
-  - **Memory Implementation**: In-memory storage with cosine similarity
+- **Vector Store Architecture** (`backend/internal/repositories/vectorstore/`)
+  - **Interface**: `VectorStore` interface (`Store`, `Search`, `Neighbors`) for pluggable implementations
+  - **Memory Implementation**: In-memory storage with cosine similarity (`pkg/similarity`)
   - **Future-Ready**: Easy to add Redis, Pinecone, or other vector stores
 
 - **REST API Endpoints** (Proper HTTP status codes, no `success` field)
@@ -124,11 +139,11 @@ This project follows a **decoupled architecture** with separate backend and fron
     - Error: HTTP 400/500 with `ErrorResponse`
   - `POST /api/query` - Performs RAG queries against uploaded documents (single response)
     - Request body: `QueryRequest` with required `question` and optional `history` (array of `{role: "user"|"assistant", content: string}`)
-    - Success: HTTP 200 with `QueryResponse`  
+    - Success: HTTP 200 with `QueryResponse` (`answer`, `sources`, `confidence`)
     - Error: HTTP 400/500 with `ErrorResponse`
   - `POST /api/query/stream` - Same as `/api/query` but streams the answer via Server-Sent Events
     - Request body: same `QueryRequest` shape as `/api/query` (including optional `history`)
-    - Success: HTTP 200 with `text/event-stream`; emits `sources`, `token`, `done`, and `error` events (each as `data: {...}\n\n`)
+    - Success: HTTP 200 with `text/event-stream`; emits `sources` (carries `confidence`), `token`, `done`, and `error` events (each as `data: {...}\n\n`)
     - Error: HTTP 400/500 with `ErrorResponse` (before the stream begins) or an inline `error` SSE event
   - `GET /health` - Health check endpoint
 
@@ -138,6 +153,8 @@ This project follows a **decoupled architecture** with separate backend and fron
   - `VectorStore` interface with `MemoryVectorStore` implementation
   - **Official OpenAI Client**: Uses `github.com/openai/openai-go` v1.12.0
   - Type definitions in `backend/pkg/types/models.go` (REST-compliant)
+  - API error codes in `backend/pkg/codes/errors.go`
+  - Cosine similarity in `backend/pkg/similarity`, text utilities in `backend/pkg/utils`
 
 ### Frontend Components (`/frontend`)
 - **Next.js Application** (`frontend/src/app/`)
@@ -156,7 +173,7 @@ This project follows a **decoupled architecture** with separate backend and fron
 
 ### Data Flow
 1. **Document Upload**: Frontend uploads files → Backend `/api/upload` → `DocumentProcessor` → chunked → embedded → stored in `VectorStore` interface
-2. **Question Answering**: Frontend sends question + prior chat `history` (capped client-side by `buildHistory`) → Backend `/api/query` (single response) or `/api/query/stream` (SSE) → history is trimmed to `maxHistoryTurns` and the last `retrievalRewriteWindow` user turns are folded into the embedding query → `VectorStore.Search()` → context retrieval → LLM prompt (system prompt + prior history + current question) → response → Frontend displays clean answer (rendered all at once or incrementally as tokens stream in, selectable via the response-mode toggle in the UI)
+2. **Question Answering**: Frontend sends question + prior chat `history` (capped client-side by `buildHistory`) → Backend `/api/query` (single response) or `/api/query/stream` (SSE) → history is trimmed to `maxHistoryTurns` and the last `retrievalRewriteWindow` user turns are folded into the embedding query → `VectorStore.Search()` → low-similarity hits filtered out and neighbor chunks expanded for context → LLM prompt (system prompt + prior history + current question) → response (with `confidence` derived from retrieval scores) → Frontend displays clean answer (rendered all at once or incrementally as tokens stream in, selectable via the response-mode toggle in the UI)
 
 ## Configuration Notes
 
@@ -188,9 +205,12 @@ When working on this project, pay attention to:
 - `backend/internal/services/rag_pipeline.go` - Core RAG logic with VectorStore interface
 - `backend/internal/services/document_processor.go` - File processing
 - `backend/internal/handlers/` - REST API endpoint implementations (proper HTTP status codes)
-- `backend/internal/vectorstore/interface.go` - VectorStore interface definition
-- `backend/internal/vectorstore/memory/memory_store.go` - In-memory implementation
+- `backend/internal/repositories/vectorstore/interface.go` - VectorStore interface definition
+- `backend/internal/repositories/vectorstore/memory/memory_store.go` - In-memory implementation
 - `backend/pkg/types/models.go` - Backend type definitions (REST-compliant, no `success` fields)
+- `backend/pkg/codes/errors.go` - API error code constants
+- `backend/pkg/similarity/cosine.go` - Cosine similarity used by the memory store
+- `backend/pkg/utils/text_splitter.go` - Chunking; `backend/pkg/utils/text_normalizer.go` - pre-chunk normalization
 - `backend/cmd/main.go` - Application entry point
 
 ### Frontend
