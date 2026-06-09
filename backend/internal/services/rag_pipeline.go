@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"rag-backend/internal/repositories/vectorstore"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -70,8 +71,8 @@ func NewRAGPipeline(cfg *config.Config, vectorStore vectorstore.VectorStore) *RA
 	}
 }
 
-func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
-	normalized := utils.Normalize(content)
+func (rp *RAGPipeline) ProcessDocument(doc types.ProcessedDocument, metadata map[string]string) ([]types.DocumentChunk, error) {
+	normalized := doc.NormalizedText
 	textChunks := rp.textSplitter.SplitText(normalized)
 
 	var embeddings [][]float64
@@ -99,19 +100,45 @@ func (rp *RAGPipeline) ProcessDocument(content string, metadata map[string]strin
 			end = start + len(textChunk)
 			cursor = start + 1
 		}
+		page := pageForOffset(doc.PageSpans, start)
+		chunkMetadata := metadata
+		if page > 0 {
+			chunkMetadata = cloneMetadata(metadata)
+			chunkMetadata["page"] = strconv.Itoa(page)
+		}
 		chunks[i] = types.DocumentChunk{
 			ID:          fmt.Sprintf("%s-chunk-%d", source, i),
 			Content:     textChunk,
 			Embedding:   embeddings[i],
-			Metadata:    metadata,
+			Metadata:    chunkMetadata,
 			Source:      source,
 			ChunkIndex:  i,
 			StartOffset: start,
 			EndOffset:   end,
+			Page:        page,
 		}
 	}
 
 	return chunks, nil
+}
+
+func pageForOffset(spans []types.PageSpan, offset int) int {
+	if len(spans) == 0 {
+		return 0
+	}
+	i := sort.Search(len(spans), func(i int) bool { return spans[i].Start > offset }) - 1
+	if i < 0 {
+		return 0
+	}
+	return spans[i].Page
+}
+
+func cloneMetadata(metadata map[string]string) map[string]string {
+	clone := make(map[string]string, len(metadata)+1)
+	for k, v := range metadata {
+		clone[k] = v
+	}
+	return clone
 }
 
 func (rp *RAGPipeline) AddDocumentToVectorStore(chunks []types.DocumentChunk) error {

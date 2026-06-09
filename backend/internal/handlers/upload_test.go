@@ -222,9 +222,9 @@ func TestHandleUpload(t *testing.T) {
 			}
 
 			ingester := &mockDocumentIngester{
-				processDocumentFunc: func(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
+				processDocumentFunc: func(doc types.ProcessedDocument, metadata map[string]string) ([]types.DocumentChunk, error) {
 					got.processDocument++
-					capturedContent = content
+					capturedContent = doc.NormalizedText
 					capturedMetadata = metadata
 					return tt.mock.processDocChunks, tt.mock.processDocErr
 				},
@@ -235,9 +235,9 @@ func TestHandleUpload(t *testing.T) {
 				},
 			}
 			processor := &mockFileProcessor{
-				processFileFunc: func(*multipart.FileHeader) (string, error) {
+				processFileFunc: func(*multipart.FileHeader) (types.ProcessedDocument, error) {
 					got.processFile++
-					return tt.mock.processFileContent, tt.mock.processFileErr
+					return types.ProcessedDocument{NormalizedText: tt.mock.processFileContent}, tt.mock.processFileErr
 				},
 				createDocumentFunc: func(content, fileName string) types.Document {
 					got.createDocument++

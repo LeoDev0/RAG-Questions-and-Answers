@@ -14,12 +14,12 @@ import (
 const maxFileSize = 10 << 20 // 10mb
 
 type DocumentIngester interface {
-	ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error)
+	ProcessDocument(doc types.ProcessedDocument, metadata map[string]string) ([]types.DocumentChunk, error)
 	AddDocumentToVectorStore(chunks []types.DocumentChunk) error
 }
 
 type FileProcessor interface {
-	ProcessFile(fileHeader *multipart.FileHeader) (string, error)
+	ProcessFile(fileHeader *multipart.FileHeader) (types.ProcessedDocument, error)
 	CreateDocument(content, fileName string) types.Document
 }
 
@@ -63,7 +63,7 @@ func (h *UploadHandler) HandleUpload(c *gin.Context) {
 		return
 	}
 
-	document := h.documentProcessor.CreateDocument(content, fileHeader.Filename)
+	document := h.documentProcessor.CreateDocument(content.NormalizedText, fileHeader.Filename)
 
 	// Process into chunks with embeddings
 	metadata := map[string]string{

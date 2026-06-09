@@ -19,6 +19,23 @@ type DocumentChunk struct {
 	ChunkIndex  int               `json:"chunkIndex"`
 	StartOffset int               `json:"startOffset"`
 	EndOffset   int               `json:"endOffset"`
+	Page        int               `json:"page,omitempty"`
+}
+
+type Page struct {
+	Number int    `json:"number"`
+	Text   string `json:"text"`
+}
+
+type PageSpan struct {
+	Page  int `json:"page"`
+	Start int `json:"start"`
+	End   int `json:"end"`
+}
+
+type ProcessedDocument struct {
+	NormalizedText string     `json:"normalizedText"`
+	PageSpans      []PageSpan `json:"pageSpans,omitempty"`
 }
 
 type RAGResponse struct {

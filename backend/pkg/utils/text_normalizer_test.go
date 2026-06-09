@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"rag-backend/pkg/types"
 )
 
 func TestNormalize(t *testing.T) {
@@ -97,7 +99,7 @@ func TestStripRepeatedHeadersFooters(t *testing.T) {
 	tests := []struct {
 		name     string
 		pages    []string
-		expected string
+		expected []string
 	}{
 		{
 			name: "strips a repeated header line",
@@ -106,7 +108,7 @@ func TestStripRepeatedHeadersFooters(t *testing.T) {
 				"ACME Confidential\nBeta body content",
 				"ACME Confidential\nGamma body content",
 			},
-			expected: "Alpha body content\n\nBeta body content\n\nGamma body content",
+			expected: []string{"Alpha body content", "Beta body content", "Gamma body content"},
 		},
 		{
 			name: "strips a repeated footer with varying page numbers",
@@ -115,7 +117,7 @@ func TestStripRepeatedHeadersFooters(t *testing.T) {
 				"Beta body content\nPage 2",
 				"Gamma body content\nPage 3",
 			},
-			expected: "Alpha body content\n\nBeta body content\n\nGamma body content",
+			expected: []string{"Alpha body content", "Beta body content", "Gamma body content"},
 		},
 		{
 			name: "strips bare page-number footers",
@@ -124,7 +126,7 @@ func TestStripRepeatedHeadersFooters(t *testing.T) {
 				"Beta body content\n13",
 				"Gamma body content\n14",
 			},
-			expected: "Alpha body content\n\nBeta body content\n\nGamma body content",
+			expected: []string{"Alpha body content", "Beta body content", "Gamma body content"},
 		},
 		{
 			name: "preserves non-repeating first lines",
@@ -133,7 +135,11 @@ func TestStripRepeatedHeadersFooters(t *testing.T) {
 				"Unique beta title\nBeta body content",
 				"Unique gamma title\nGamma body content",
 			},
-			expected: "Unique alpha title\nAlpha body content\n\nUnique beta title\nBeta body content\n\nUnique gamma title\nGamma body content",
+			expected: []string{
+				"Unique alpha title\nAlpha body content",
+				"Unique beta title\nBeta body content",
+				"Unique gamma title\nGamma body content",
+			},
 		},
 		{
 			name: "keeps identical lines when below minimum page count",
@@ -141,7 +147,10 @@ func TestStripRepeatedHeadersFooters(t *testing.T) {
 				"Repeated header\nAlpha body content",
 				"Repeated header\nBeta body content",
 			},
-			expected: "Repeated header\nAlpha body content\n\nRepeated header\nBeta body content",
+			expected: []string{
+				"Repeated header\nAlpha body content",
+				"Repeated header\nBeta body content",
+			},
 		},
 		{
 			name: "keeps a line repeated below the threshold",
@@ -151,18 +160,31 @@ func TestStripRepeatedHeadersFooters(t *testing.T) {
 				"Distinct gamma head\nGamma body content",
 				"Distinct delta head\nDelta body content",
 			},
-			expected: "Shared header\nAlpha body content\n\nDistinct beta head\nBeta body content\n\nDistinct gamma head\nGamma body content\n\nDistinct delta head\nDelta body content",
+			expected: []string{
+				"Shared header\nAlpha body content",
+				"Distinct beta head\nBeta body content",
+				"Distinct gamma head\nGamma body content",
+				"Distinct delta head\nDelta body content",
+			},
 		},
 		{
 			name:     "handles empty pages without panicking",
 			pages:    []string{"", "", ""},
-			expected: "\n\n\n\n",
+			expected: []string{"", "", ""},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, StripRepeatedHeadersFooters(tt.pages))
+			input := make([]types.Page, len(tt.pages))
+			for i, text := range tt.pages {
+				input[i] = types.Page{Number: i + 1, Text: text}
+			}
+			want := make([]types.Page, len(tt.expected))
+			for i, text := range tt.expected {
+				want[i] = types.Page{Number: i + 1, Text: text}
+			}
+			assert.Equal(t, want, StripRepeatedHeadersFooters(input))
 		})
 	}
 }

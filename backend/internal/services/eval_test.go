@@ -130,7 +130,8 @@ func ingestGoldenDocs(t *testing.T, pipeline *RAGPipeline, cases []goldenCase) {
 			continue
 		}
 		content := loadDocument(t, gc.Document)
-		chunks, err := pipeline.ProcessDocument(content, map[string]string{"source": gc.Document})
+		doc := types.ProcessedDocument{NormalizedText: utils.Normalize(content)}
+		chunks, err := pipeline.ProcessDocument(doc, map[string]string{"source": gc.Document})
 		assert.NoError(t, err)
 		assert.NoError(t, pipeline.AddDocumentToVectorStore(chunks))
 		ingested[gc.Document] = true
@@ -349,7 +350,8 @@ func TestEvalNeighborExpansionRecoversCrossChunkAnswer(t *testing.T) {
 	store := memory.NewMemoryVectorStore()
 	pipeline := newEvalPipeline(embedder, store)
 
-	chunks, err := pipeline.ProcessDocument(content, map[string]string{"source": "physics"})
+	doc := types.ProcessedDocument{NormalizedText: utils.Normalize(content)}
+	chunks, err := pipeline.ProcessDocument(doc, map[string]string{"source": "physics"})
 	assert.NoError(t, err)
 	assert.NoError(t, pipeline.AddDocumentToVectorStore(chunks))
 	assert.Greater(t, len(chunks), maxContentChunks, "need more chunks than k so the answer chunk falls outside top-k")

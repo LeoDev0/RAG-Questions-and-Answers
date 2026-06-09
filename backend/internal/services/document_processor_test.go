@@ -10,6 +10,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+
+	"rag-backend/pkg/types"
 )
 
 func buildTestPDF(contentStream string) []byte {
@@ -155,13 +157,13 @@ func TestProcessFile(t *testing.T) {
 			if tt.expected.err != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expected.err)
-				assert.Empty(t, result)
+				assert.Empty(t, result.NormalizedText)
 			} else if tt.expected.nonEmpty {
 				assert.NoError(t, err)
-				assert.NotEmpty(t, result)
+				assert.NotEmpty(t, result.NormalizedText)
 			} else {
 				assert.NoError(t, err)
-				assert.Equal(t, tt.expected.result, result)
+				assert.Equal(t, tt.expected.result, result.NormalizedText)
 			}
 		})
 	}
@@ -209,10 +211,107 @@ func TestProcessPDF(t *testing.T) {
 			if tt.expected.err != "" {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.expected.err)
-				assert.Empty(t, result)
+				assert.Empty(t, result.NormalizedText)
 			} else {
 				assert.NoError(t, err)
-				assert.NotEmpty(t, result)
+				assert.NotEmpty(t, result.NormalizedText)
+			}
+		})
+	}
+}
+
+func TestBuildProcessedDocument(t *testing.T) {
+	type expected struct {
+		normalized string
+		spans      []types.PageSpan
+	}
+
+	tests := []struct {
+		name     string
+		pages    []types.Page
+		expected expected
+	}{
+		{
+			name: "multi-page records contiguous spans with running offsets",
+			pages: []types.Page{
+				{Number: 1, Text: "First page content"},
+				{Number: 2, Text: "Second page content"},
+				{Number: 3, Text: "Third page content"},
+			},
+			expected: expected{
+				normalized: "First page content\n\nSecond page content\n\nThird page content",
+				spans: []types.PageSpan{
+					{Page: 1, Start: 0, End: 18},
+					{Page: 2, Start: 20, End: 39},
+					{Page: 3, Start: 41, End: 59},
+				},
+			},
+		},
+		{
+			name: "skips an empty middle page but keeps true page numbers",
+			pages: []types.Page{
+				{Number: 1, Text: "Alpha content here"},
+				{Number: 2, Text: "   "},
+				{Number: 3, Text: "Gamma content here"},
+			},
+			expected: expected{
+				normalized: "Alpha content here\n\nGamma content here",
+				spans: []types.PageSpan{
+					{Page: 1, Start: 0, End: 18},
+					{Page: 3, Start: 20, End: 38},
+				},
+			},
+		},
+		{
+			name:  "single page produces a single span",
+			pages: []types.Page{{Number: 1, Text: "Only page text"}},
+			expected: expected{
+				normalized: "Only page text",
+				spans:      []types.PageSpan{{Page: 1, Start: 0, End: 14}},
+			},
+		},
+		{
+			name: "strips a repeated header before computing spans",
+			pages: []types.Page{
+				{Number: 1, Text: "ACME Confidential\nAlpha body"},
+				{Number: 2, Text: "ACME Confidential\nBeta body"},
+				{Number: 3, Text: "ACME Confidential\nGamma body"},
+			},
+			expected: expected{
+				normalized: "Alpha body\n\nBeta body\n\nGamma body",
+				spans: []types.PageSpan{
+					{Page: 1, Start: 0, End: 10},
+					{Page: 2, Start: 12, End: 21},
+					{Page: 3, Start: 23, End: 33},
+				},
+			},
+		},
+		{
+			name: "all-empty pages yield empty text and no spans",
+			pages: []types.Page{
+				{Number: 1, Text: ""},
+				{Number: 2, Text: ""},
+				{Number: 3, Text: ""},
+			},
+			expected: expected{
+				normalized: "",
+				spans:      []types.PageSpan{},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := buildProcessedDocument(tt.pages)
+
+			assert.Equal(t, tt.expected.normalized, result.NormalizedText)
+			assert.Equal(t, tt.expected.spans, result.PageSpans)
+
+			for _, span := range result.PageSpans {
+				assert.GreaterOrEqual(t, span.Start, 0)
+				assert.LessOrEqual(t, span.End, len(result.NormalizedText))
+				assert.NotEmpty(t, result.NormalizedText[span.Start:span.End],
+					"span for page %d must locate non-empty text", span.Page)
 			}
 		})
 	}

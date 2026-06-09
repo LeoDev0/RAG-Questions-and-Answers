@@ -7,12 +7,12 @@ import (
 )
 
 type mockDocumentIngester struct {
-	processDocumentFunc          func(content string, metadata map[string]string) ([]types.DocumentChunk, error)
+	processDocumentFunc          func(doc types.ProcessedDocument, metadata map[string]string) ([]types.DocumentChunk, error)
 	addDocumentToVectorStoreFunc func(chunks []types.DocumentChunk) error
 }
 
-func (m *mockDocumentIngester) ProcessDocument(content string, metadata map[string]string) ([]types.DocumentChunk, error) {
-	return m.processDocumentFunc(content, metadata)
+func (m *mockDocumentIngester) ProcessDocument(doc types.ProcessedDocument, metadata map[string]string) ([]types.DocumentChunk, error) {
+	return m.processDocumentFunc(doc, metadata)
 }
 
 func (m *mockDocumentIngester) AddDocumentToVectorStore(chunks []types.DocumentChunk) error {
@@ -20,11 +20,11 @@ func (m *mockDocumentIngester) AddDocumentToVectorStore(chunks []types.DocumentC
 }
 
 type mockFileProcessor struct {
-	processFileFunc    func(fileHeader *multipart.FileHeader) (string, error)
+	processFileFunc    func(fileHeader *multipart.FileHeader) (types.ProcessedDocument, error)
 	createDocumentFunc func(content, fileName string) types.Document
 }
 
-func (m *mockFileProcessor) ProcessFile(fileHeader *multipart.FileHeader) (string, error) {
+func (m *mockFileProcessor) ProcessFile(fileHeader *multipart.FileHeader) (types.ProcessedDocument, error) {
 	return m.processFileFunc(fileHeader)
 }
 
