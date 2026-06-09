@@ -6,10 +6,11 @@ Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can
 
 - Upload PDF and text documents (max 10MB)
 - Ask natural language questions about uploaded content
-- Real-time Q&A with source citations
+- Real-time Q&A with source citations and per-answer confidence scoring
+- PDF page attribution: answers track which page each retrieved chunk came from
 - Multi-turn conversations: follow-up questions use prior chat history for both LLM context and retrieval disambiguation
 - Streaming responses (Server-Sent Events) with a UI toggle to fall back to single-shot replies
-- Vector-based document similarity search
+- Vector-based document similarity search with low-relevance filtering and neighbor-chunk context expansion
 - DeepSeek LLM integration for responses
 - OpenAI embeddings for document processing
 
@@ -23,11 +24,14 @@ Document Q&A Bot that implements Retrieval-Augmented Generation (RAG). Users can
 │   ├── internal/
 │   │   ├── config/   # Configuration handling
 │   │   ├── handlers/ # HTTP handlers
-│   │   └── services/ # Business logic (RAG pipeline, document processing)
+│   │   ├── services/ # Business logic (RAG pipeline, document processing)
+│   │   └── repositories/
+│   │       └── vectorstore/ # Vector store interface + in-memory implementation
 │   ├── pkg/
+│   │   ├── codes/      # API error codes
+│   │   ├── similarity/ # Cosine similarity search
 │   │   ├── types/      # Data structures
 │   │   └── utils/      # Utilities
-│   │   └── similarity/ # Similarity search algorithm
 │   ├── go.mod
 │   ├── Makefile
 │   ├── .env.example
@@ -139,11 +143,11 @@ how to read the metrics and add golden cases.
 ## Architecture
 
 ### RAG Pipeline
-1. **Document Upload**: Files are processed and chunked into 1000-character segments with 200-character overlap
+1. **Document Upload**: Extracted text is normalized (header/footer stripping, de-hyphenation across page breaks), then chunked into 1000-character segments with 200-character overlap. PDF page numbers are attributed to each chunk.
 2. **Embedding**: Text chunks are converted to vectors using OpenAI embeddings
 3. **Storage**: Vectors stored in memory (ephemeral - resets on restart)
-4. **Query**: User questions trigger similarity search to find relevant chunks. Recent user turns from the conversation history are folded into the embedding query to disambiguate follow-up references like "it" or "that".
-5. **Generation**: DeepSeek LLM generates responses based on retrieved context and prior chat history
+4. **Query**: User questions trigger similarity search to find relevant chunks. Recent user turns from the conversation history are folded into the embedding query to disambiguate follow-up references like "it" or "that". Low-similarity hits are filtered out and adjacent chunks are pulled in to give the LLM fuller context.
+5. **Generation**: DeepSeek LLM generates responses based on retrieved context and prior chat history, along with a confidence score derived from the retrieval similarity scores
 
 ### Data Flow
 ```
